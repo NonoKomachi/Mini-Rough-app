@@ -1,0 +1,7 @@
+node_modules/
+dist/
+third_party/emsdk/
+scratch/
+scratch-profile*.ts
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

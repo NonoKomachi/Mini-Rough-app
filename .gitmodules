@@ -1,0 +1,3 @@
+[submodule "third_party/libclip"]
+	path = third_party/libclip
+	url = https://github.com/lemonator32/libclip.git

@@ -1,0 +1,15 @@
+{
+  "name": "@mini-rough/clip-io",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build:wasm": "bash native/build.sh"
+  },
+  "dependencies": {
+    "@mini-rough/core": "*",
+    "ag-psd": "^34.2.0"
+  }
+}
