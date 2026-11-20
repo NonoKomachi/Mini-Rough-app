@@ -516,14 +516,23 @@ function clearActiveLayer(): void {
   active.widget.render();
 }
 
+/** 現在選んでいる色スロット(メイン/サブ/透明)が指す実際の色 — ツールバーの各スウォッチの
+ * クリックハンドラがapplyColorToToolsに渡す色と常に一致させる。 */
+function currentSlotColor(): RGBA {
+  if (activeColorSlot === "sub") return subColor;
+  if (activeColorSlot === "transparent") return [0, 0, 0, 0];
+  return mainColor;
+}
+
 function fillActiveLayer(): void {
   // CLIP STUDIOと同じ仕様: 選択範囲があればその中だけ、なければレイヤー全体を塗る。
+  // 塗る色は常にmainColor固定ではなく、サブカラー/透明を選んでいればそちらを使う。
   const active = requireActiveVariant();
   const layer = active?.doc.getActiveLayer();
   if (!active || !layer) return;
   grid.pushUndoForActive();
   const mask = maskHasSelection(active.doc.selectionMask) ? active.doc.selectionMask : null;
-  fillWithColor(layer, mask, mainColor);
+  fillWithColor(layer, mask, currentSlotColor());
   active.widget.render();
 }
 
