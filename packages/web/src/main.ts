@@ -469,6 +469,16 @@ window.addEventListener("beforeunload", (e) => {
   e.preventDefault();
   e.returnValue = "";
 });
+// beforeunload/unloadはページを閉じる直前に発火するが、非同期処理(IndexedDBへの書き込みを
+// 含むautoSaveTick)を待ってくれる保証が無く、特にモバイルや一部ブラウザでは全く発火しない
+// ことすらある。タブを閉じる/切り替える/最小化する際は必ずその前にvisibilitychange(hidden)が
+// 先に発火し、かつ非同期処理の完了をブラウザが多少待ってくれるため、ここで実際のキャッシュ
+// 保存を行う — これが無いと、次回の自動保存タイマー(既定5分間隔)が一度も回らないうちに
+// タブを閉じてしまった場合、直前までの編集内容がキャッシュに一切反映されず、再度開いた時に
+// 古い状態まで戻ってしまっていた。
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") void autoSaveTick();
+});
 
 // 右クリック(常時)またはスポイトツール自体でクリックした位置の色を、現在アクティブな
 // カラースロット(メイン/サブ)に反映する。透明スロットを選んでいた場合はメインに戻す。
