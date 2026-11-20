@@ -108,12 +108,12 @@ export class VariantGrid {
     this.onActiveChange = onActiveChange;
 
     new ResizeObserver(() => {
-      // 単体フィッティングが中央寄せのために付けたmargin/min-width/min-height(あれば)は
-      // コンテナの寸法が変わった時点でもう正しい値ではなくなる — 消さずに残すと、リサイズ後は
-      // 必要ないはずのスクロールバーがその古い値のせいでずっと出続けてしまう(タイル自体の
-      // サイズは別途grid-column/row spanで保持されるので、これを消してもタイルが縮む/
-      // 単体フィッティングが再適用されることはない=ユーザー指示には抵触しない)。
-      this.clearCenterSlack();
+      // margin/min-width/min-heightはコンテナの寸法を基準に計算した値なので、コンテナの寸法が
+      // 変わった時点でもう正しくない — 測り直さずに残すと、リサイズ後は必要ないはずの
+      // スクロールバーが古い値のせいで出続けたり、逆に中央まで届く余白が狭すぎたりする
+      // (タイル自体のサイズは別途grid-column/row spanで保持されるので、これを測り直しても
+      // タイルが縮む/単体フィッティングが再適用されることはない=ユーザー指示には抵触しない)。
+      this.resetGridSlack();
       // 単体フィッティングはボタンを押した時の一回限りの処理であって、ビューポートの
       // リサイズに追従して勝手に再適用するものではない(ユーザー指示) — 全体フィッティングは
       // 元々の仕様どおりリサイズに追従する。
@@ -131,7 +131,7 @@ export class VariantGrid {
     }
     this.variants = [];
     this.autoFitMode = null;
-    this.clearCenterSlack();
+    this.resetGridSlack();
     this.addVariant(doc);
   }
 
@@ -205,6 +205,10 @@ export class VariantGrid {
     };
     widget.onZoomChange = (zoom) => {
       this.updateTileSpan(variant);
+      // ズームが変わるとどの軸があふれているかも変わりうるので、中央まで届く余白を
+      // ここでも測り直す(単体フィッティング以外の、手動ズームやequalizeSizes経由の
+      // 変更でも常に最新の状態にしておくため)。
+      this.resetGridSlack();
       if (this.activeId === variant.id) this.onActiveZoomChange?.(zoom);
     };
     widget.onColorPick = (color) => this.onColorPick?.(color);
@@ -301,6 +305,10 @@ export class VariantGrid {
     };
     widget.onZoomChange = (zoom) => {
       this.updateTileSpan(variant);
+      // ズームが変わるとどの軸があふれているかも変わりうるので、中央まで届く余白を
+      // ここでも測り直す(単体フィッティング以外の、手動ズームやequalizeSizes経由の
+      // 変更でも常に最新の状態にしておくため)。
+      this.resetGridSlack();
       if (this.activeId === variant.id) this.onActiveZoomChange?.(zoom);
     };
     widget.onColorPick = (color) => this.onColorPick?.(color);
@@ -418,12 +426,13 @@ export class VariantGrid {
   }
 
   setActive(id: string): void {
-    // 単体フィッティングが中央寄せのために付けたmargin/min-width/min-height(あれば)は、
-    // 別のバリエーションへ切り替えた時点で中央寄せの対象がもう存在しないので意味を失う —
-    // 消さずに残すと、以後ずっと(その古い値のせいで)必要ないスクロールバーが出続けてしまう。
-    // タイル自体のサイズはgrid-column/row spanで別途保持されるので、ここで消しても
-    // 「以前フィットしたタイルはそのまま残る」という仕様(ユーザー指示)には影響しない。
-    this.clearCenterSlack();
+    // 単体フィッティングが中央寄せのために上乗せしたmargin/min-width/min-height(あれば)は、
+    // 別のバリエーションへ切り替えた時点でその上乗せ分の意味を失う — 消さずに残すと、以後
+    // ずっと(その古い値のせいで)必要ないスクロールバーが出続けてしまう。切り替え先の内容
+    // だけを基準にした値へ測り直す。タイル自体のサイズはgrid-column/row spanで別途保持
+    // されるので、ここで測り直しても「以前フィットしたタイルはそのまま残る」という仕様
+    // (ユーザー指示)には影響しない。
+    this.resetGridSlack();
     this.activeId = id;
     for (const v of this.variants) {
       v.tileEl.classList.toggle("active", v.id === id);
@@ -533,7 +542,7 @@ export class VariantGrid {
   fitActive(): void {
     const active = this.getActive();
     if (!active) return;
-    this.clearCenterSlack();
+    this.resetGridSlack();
     const rect = this.container.getBoundingClientRect();
     const chrome = this.measureChrome(active);
     // .variant-grid's own padding (12px each side) — see index.html.
@@ -562,51 +571,74 @@ export class VariantGrid {
     this.container.scrollTop += dy;
   }
 
-  /** 前回のfitActive()がcenterOffsetの余白調整のために付けたmargin/min-width/min-height
-   * (あれば)を取り除く — equalizeSizes/applyFitAll/resetなど、他のレイアウトモードに
-   * 持ち越されてズレて見えることがないように、それらの処理の先頭からも呼ぶ。 */
-  private clearCenterSlack(): void {
+  /** .variant-gridのmargin/min-width/min-heightを、今の内容だけから導ける「基準の」状態に
+   * 作り直す(付けすぎればequalizeSizes/applyFitAll/resetなど他のレイアウトモードにまで
+   * 古い値が持ち越されてズレて見える/不要なスクロールバーが出るので、必ずリセットしてから
+   * 測り直す)。
+   *
+   * 1. タイルが大きすぎて.variant-grid自身の高さ/幅(height/width:100%)を超えてあふれている
+   *    場合、そのあふれはグリッド自身の「余白(margin)」の基準点より深い位置まで達してしまい、
+   *    margin-top/bottom等を付けても(あふれの方がさらに深いので)スクロール範囲が全く広がらない
+   *    ことがあった。先にgrid自身のscrollWidth/Height(実際にあふれている範囲込みの寸法)を
+   *    min-width/min-heightとして明示することで、グリッド自身の箱をそのあふれを含む大きさに
+   *    揃え、以降のmarginが正しく効くようにする。
+   * 2. (1を揃えた後もなお)実際にその軸があふれている場合だけ、前後にビューポート半分ぶんの
+   *    余白(margin)を追加する — スクロールし切った位置が内容の端ぴったりではなく、そこから
+   *    さらに中央まで持ってこられる余地を常に残しておくため(ユーザー要望)。あふれていない軸
+   *    には何も足さないので、収まっている時に不要なスクロールバーが出ることはない。 */
+  private resetGridSlack(): void {
     this.gridEl.style.marginLeft = "";
     this.gridEl.style.marginRight = "";
     this.gridEl.style.marginTop = "";
     this.gridEl.style.marginBottom = "";
     this.gridEl.style.minWidth = "";
     this.gridEl.style.minHeight = "";
+    // どちらの軸があふれているかは、min-width/min-heightを付ける前に判定しておく —
+    // min-height等を付けるとグリッド自身のclientHeightがそのあふれを含む大きさまで
+    // 広がってしまい、後から同じ条件(scrollHeight > clientHeight)で判定し直すと
+    // 「あふれていない」ことになってしまい、2のmarginが永久に付かなくなる不具合があった。
+    const overflowsH = this.gridEl.scrollWidth > this.gridEl.clientWidth;
+    const overflowsV = this.gridEl.scrollHeight > this.gridEl.clientHeight;
+    if (overflowsH) this.gridEl.style.minWidth = `${this.gridEl.scrollWidth}px`;
+    if (overflowsV) this.gridEl.style.minHeight = `${this.gridEl.scrollHeight}px`;
+    const rect = this.container.getBoundingClientRect();
+    if (overflowsH) {
+      const half = `${rect.width / 2}px`;
+      this.gridEl.style.marginLeft = half;
+      this.gridEl.style.marginRight = half;
+    }
+    if (overflowsV) {
+      const half = `${rect.height / 2}px`;
+      this.gridEl.style.marginTop = half;
+      this.gridEl.style.marginBottom = half;
+    }
+  }
+
+  /** 指定した方向のmarginを、今の値より大きい場合だけ引き上げる — resetGridSlack()が既に
+   * 付けたビューポート半分ぶんの余白を、より大きな値で上書きすることはあっても、小さい値で
+   * 消してしまうことはない。 */
+  private growMargin(side: "marginLeft" | "marginRight" | "marginTop" | "marginBottom", px: number): void {
+    const current = parseFloat(this.gridEl.style[side]) || 0;
+    if (px > current) this.gridEl.style[side] = `${px}px`;
   }
 
   /** `variant`のタイルが#canvas-viewportの中央に来るようスクロールする。
    *
    * 他のバリエーション(特にdense packingで大きいタイルの周りの隙間を詰めるように配置された
    * 小さいタイル群)が非対称に配置されていると、このタイルを中央へスクロールしようとしても
-   * 必要な余地が足りず、ズレた位置に取り残されることがあった(scrollLeft/scrollTopは
-   * 0未満・最大値超えにできないため)。これを2段階で補う:
-   *
-   * 1. タイルが大きすぎて.variant-grid自身の高さ/幅(height/width:100%)を超えてあふれている
-   *    場合、そのあふれはグリッド自身の「余白(margin)」の基準点より深い位置まで達してしまい、
-   *    後述のmarginを付けても(あふれの方がさらに深いので)スクロール範囲が全く広がらない
-   *    ことがあった。先にgrid自身のscrollWidth/Height(実際にあふれている範囲込みの寸法)を
-   *    min-width/min-heightとして明示することで、グリッド自身の箱をそのあふれを含む大きさに
-   *    揃え、以降のmarginが正しく効くようにする。
-   * 2. それでもなお中央に届かない分だけ、ズレをちょうど打ち消すmargin(見た目には何も
-   *    描かれない余白)を.variant-grid自身に付けてスクロール可能な余地を作り出し
-   *    (index.htmlのwidth:100%参照 — widthを固定してあるのでmarginはグリッドを縮めず
-   *    純粋にオーバーフローを増やす)、もう一度センタリングし直す。 */
+   * resetGridSlack()が付けた余白だけでは足りず、ズレた位置に取り残されることがある
+   * (scrollLeft/scrollTopは0未満・最大値超えにできないため)。その場合だけ、ズレをちょうど
+   * 打ち消す分までmarginを追加で引き上げ(growMargin)、もう一度センタリングし直す。 */
   private scrollTileToCenter(variant: Variant): void {
-    this.clearCenterSlack();
-    if (this.gridEl.scrollWidth > this.gridEl.clientWidth) {
-      this.gridEl.style.minWidth = `${this.gridEl.scrollWidth}px`;
-    }
-    if (this.gridEl.scrollHeight > this.gridEl.clientHeight) {
-      this.gridEl.style.minHeight = `${this.gridEl.scrollHeight}px`;
-    }
+    this.resetGridSlack();
     this.applyCenterScroll(variant);
     const remaining = this.centerOffset(variant);
     const EPS = 0.5;
     if (Math.abs(remaining.dx) < EPS && Math.abs(remaining.dy) < EPS) return;
-    if (remaining.dx < -EPS) this.gridEl.style.marginLeft = `${-remaining.dx}px`;
-    else if (remaining.dx > EPS) this.gridEl.style.marginRight = `${remaining.dx}px`;
-    if (remaining.dy < -EPS) this.gridEl.style.marginTop = `${-remaining.dy}px`;
-    else if (remaining.dy > EPS) this.gridEl.style.marginBottom = `${remaining.dy}px`;
+    if (remaining.dx < -EPS) this.growMargin("marginLeft", -remaining.dx);
+    else if (remaining.dx > EPS) this.growMargin("marginRight", remaining.dx);
+    if (remaining.dy < -EPS) this.growMargin("marginTop", -remaining.dy);
+    else if (remaining.dy > EPS) this.growMargin("marginBottom", remaining.dy);
     this.applyCenterScroll(variant);
   }
 
@@ -622,7 +654,7 @@ export class VariantGrid {
    * back on the exact size that was copied. Matching zoom directly is exact by construction. */
   equalizeSizes(): void {
     this.autoFitMode = null;
-    this.clearCenterSlack();
+    this.resetGridSlack();
     const active = this.getActive();
     if (!active) return;
     const zoom = active.widget.getZoom();
@@ -635,7 +667,7 @@ export class VariantGrid {
   private applyFitAll(): void {
     const n = this.variants.length;
     if (n === 0) return;
-    this.clearCenterSlack();
+    this.resetGridSlack();
     const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
     const rows = Math.max(1, Math.ceil(n / cols));
     const rect = this.container.getBoundingClientRect();
