@@ -125,6 +125,7 @@ export class VariantGrid {
     }
     this.variants = [];
     this.autoFitMode = null;
+    this.clearCenterSlack();
     this.addVariant(doc);
   }
 
@@ -520,6 +521,7 @@ export class VariantGrid {
   fitActive(): void {
     const active = this.getActive();
     if (!active) return;
+    this.clearCenterSlack();
     const rect = this.container.getBoundingClientRect();
     const chrome = this.measureChrome(active);
     // .variant-grid's own padding (12px each side) — see index.html.
@@ -530,16 +532,70 @@ export class VariantGrid {
     this.scrollTileToCenter(active);
   }
 
-  /** `variant`のタイルが#canvas-viewportの中央に来るようスクロールする。タイルの近くに
-   * (グリッドの端などで)十分なスクロール余地がない場合はscrollLeft/scrollTopの代入が
-   * ブラウザ側で自然にクランプされ、可能な範囲で最も中央に近い位置になる。 */
-  private scrollTileToCenter(variant: Variant): void {
+  /** `variant`のタイルの中心と#canvas-viewportの中心とのズレ(px)。 */
+  private centerOffset(variant: Variant): { dx: number; dy: number } {
     const rect = this.container.getBoundingClientRect();
     const tileRect = variant.tileEl.getBoundingClientRect();
-    const dx = tileRect.left + tileRect.width / 2 - (rect.left + rect.width / 2);
-    const dy = tileRect.top + tileRect.height / 2 - (rect.top + rect.height / 2);
+    return {
+      dx: tileRect.left + tileRect.width / 2 - (rect.left + rect.width / 2),
+      dy: tileRect.top + tileRect.height / 2 - (rect.top + rect.height / 2),
+    };
+  }
+
+  /** scrollLeft/scrollTopへ現在のズレをそのまま加算する。スクロール可能な余地が足りない方向は
+   * ブラウザ側で自然にクランプされ、可能な範囲で最も中央に近い位置になる。 */
+  private applyCenterScroll(variant: Variant): void {
+    const { dx, dy } = this.centerOffset(variant);
     this.container.scrollLeft += dx;
     this.container.scrollTop += dy;
+  }
+
+  /** 前回のfitActive()がcenterOffsetの余白調整のために付けたmargin/min-width/min-height
+   * (あれば)を取り除く — equalizeSizes/applyFitAll/resetなど、他のレイアウトモードに
+   * 持ち越されてズレて見えることがないように、それらの処理の先頭からも呼ぶ。 */
+  private clearCenterSlack(): void {
+    this.gridEl.style.marginLeft = "";
+    this.gridEl.style.marginRight = "";
+    this.gridEl.style.marginTop = "";
+    this.gridEl.style.marginBottom = "";
+    this.gridEl.style.minWidth = "";
+    this.gridEl.style.minHeight = "";
+  }
+
+  /** `variant`のタイルが#canvas-viewportの中央に来るようスクロールする。
+   *
+   * 他のバリエーション(特にdense packingで大きいタイルの周りの隙間を詰めるように配置された
+   * 小さいタイル群)が非対称に配置されていると、このタイルを中央へスクロールしようとしても
+   * 必要な余地が足りず、ズレた位置に取り残されることがあった(scrollLeft/scrollTopは
+   * 0未満・最大値超えにできないため)。これを2段階で補う:
+   *
+   * 1. タイルが大きすぎて.variant-grid自身の高さ/幅(height/width:100%)を超えてあふれている
+   *    場合、そのあふれはグリッド自身の「余白(margin)」の基準点より深い位置まで達してしまい、
+   *    後述のmarginを付けても(あふれの方がさらに深いので)スクロール範囲が全く広がらない
+   *    ことがあった。先にgrid自身のscrollWidth/Height(実際にあふれている範囲込みの寸法)を
+   *    min-width/min-heightとして明示することで、グリッド自身の箱をそのあふれを含む大きさに
+   *    揃え、以降のmarginが正しく効くようにする。
+   * 2. それでもなお中央に届かない分だけ、ズレをちょうど打ち消すmargin(見た目には何も
+   *    描かれない余白)を.variant-grid自身に付けてスクロール可能な余地を作り出し
+   *    (index.htmlのwidth:100%参照 — widthを固定してあるのでmarginはグリッドを縮めず
+   *    純粋にオーバーフローを増やす)、もう一度センタリングし直す。 */
+  private scrollTileToCenter(variant: Variant): void {
+    this.clearCenterSlack();
+    if (this.gridEl.scrollWidth > this.gridEl.clientWidth) {
+      this.gridEl.style.minWidth = `${this.gridEl.scrollWidth}px`;
+    }
+    if (this.gridEl.scrollHeight > this.gridEl.clientHeight) {
+      this.gridEl.style.minHeight = `${this.gridEl.scrollHeight}px`;
+    }
+    this.applyCenterScroll(variant);
+    const remaining = this.centerOffset(variant);
+    const EPS = 0.5;
+    if (Math.abs(remaining.dx) < EPS && Math.abs(remaining.dy) < EPS) return;
+    if (remaining.dx < -EPS) this.gridEl.style.marginLeft = `${-remaining.dx}px`;
+    else if (remaining.dx > EPS) this.gridEl.style.marginRight = `${remaining.dx}px`;
+    if (remaining.dy < -EPS) this.gridEl.style.marginTop = `${-remaining.dy}px`;
+    else if (remaining.dy > EPS) this.gridEl.style.marginBottom = `${remaining.dy}px`;
+    this.applyCenterScroll(variant);
   }
 
   /** Arranges + sizes every variant so they all fit in the viewport at once; keeps re-fitting on resize. */
@@ -554,6 +610,7 @@ export class VariantGrid {
    * back on the exact size that was copied. Matching zoom directly is exact by construction. */
   equalizeSizes(): void {
     this.autoFitMode = null;
+    this.clearCenterSlack();
     const active = this.getActive();
     if (!active) return;
     const zoom = active.widget.getZoom();
@@ -566,6 +623,7 @@ export class VariantGrid {
   private applyFitAll(): void {
     const n = this.variants.length;
     if (n === 0) return;
+    this.clearCenterSlack();
     const cols = Math.max(1, Math.ceil(Math.sqrt(n)));
     const rows = Math.max(1, Math.ceil(n / cols));
     const rect = this.container.getBoundingClientRect();
