@@ -65,6 +65,7 @@ export class LayerPanel {
   private readonly doc: Document;
   private readonly onChange: () => void;
   private readonly onBeforeChange: () => void;
+  private readonly promptRename: (title: string, defaultValue: string, onResult: (value: string | null) => void) => void;
   private readonly listEl: HTMLDivElement;
   private readonly opacityInput: HTMLInputElement;
   private readonly opacityValue: HTMLSpanElement;
@@ -90,11 +91,18 @@ export class LayerPanel {
    * 閉じたフォルダーのidだけが入る。 */
   private readonly collapsedFolderIds = new Set<string>();
 
-  constructor(container: HTMLElement, doc: Document, onChange: () => void, onBeforeChange: () => void = () => {}) {
+  constructor(
+    container: HTMLElement,
+    doc: Document,
+    onChange: () => void,
+    onBeforeChange: () => void,
+    promptRename: (title: string, defaultValue: string, onResult: (value: string | null) => void) => void
+  ) {
     this.container = container;
     this.doc = doc;
     this.onChange = onChange;
     this.onBeforeChange = onBeforeChange;
+    this.promptRename = promptRename;
 
     const header = document.createElement("div");
     header.className = "layer-panel-header";
@@ -339,12 +347,13 @@ export class LayerPanel {
     });
     nameEl.addEventListener("dblclick", (e) => {
       e.stopPropagation();
-      const next = window.prompt(node.kind === "folder" ? "フォルダー名を変更" : "レイヤー名を変更", node.name);
-      if (next && next.trim()) {
-        this.onBeforeChange();
-        node.name = next.trim();
-        this.refreshSelectionOnly();
-      }
+      this.promptRename(node.kind === "folder" ? "フォルダー名を変更" : "レイヤー名を変更", node.name, (next) => {
+        if (next && next.trim()) {
+          this.onBeforeChange();
+          node.name = next.trim();
+          this.refreshSelectionOnly();
+        }
+      });
     });
     row.appendChild(nameEl);
 

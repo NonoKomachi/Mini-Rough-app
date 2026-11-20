@@ -45,6 +45,8 @@ import { rgbToHex, checkeredBackgroundImage } from "./color-utils";
 import { serializeProject, deserializeProject } from "./project-file";
 import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 import { ConfirmDialog } from "./confirm-dialog";
+import { AlertDialog } from "./alert-dialog";
+import { PromptDialog } from "./prompt-dialog";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
 import {
@@ -348,6 +350,8 @@ const canvasSizeDialog = new CanvasSizeDialog();
 const saveDialog = new SaveDialog();
 const unsavedChangesDialog = new UnsavedChangesDialog();
 const confirmDialog = new ConfirmDialog();
+const alertDialog = new AlertDialog();
+const promptDialog = new PromptDialog();
 
 /** CanvasSizeDialogの入力結果をDocumentへ適用する。ミニラフ解像度が変わらない場合は完成サイズ/
  * dpiだけをその場で書き換え(リサンプル不要)、変わる場合だけ新しいDocumentを作って返す。 */
@@ -441,7 +445,8 @@ const grid = new VariantGrid(canvasViewport, () => tools[activeId], (doc, widget
     layerPanelContainer,
     doc,
     () => widget.render(),
-    () => grid.pushUndoForActive()
+    () => grid.pushUndoForActive(),
+    (title, defaultValue, onResult) => promptDialog.show(title, defaultValue, onResult)
   );
 });
 
@@ -480,7 +485,7 @@ grid.onColorPick = (rgba) => {
 
 function requireActiveVariant(): Variant | undefined {
   const active = grid.getActive();
-  if (!active) window.alert("バリエーションを選んでください");
+  if (!active) alertDialog.show("バリエーションを選んでください");
   return active;
 }
 
@@ -548,7 +553,7 @@ function openSaveDialogForActive(): void {
       downloadBytes(bytes, `mini-rough.${extensionFor(result.format)}`);
     } catch (err) {
       console.error(err);
-      window.alert(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+      alertDialog.show(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
     }
   });
 }
@@ -805,7 +810,7 @@ async function loadProjectFromJson(text: string, clearCache = true): Promise<voi
     if (clearCache) void clearCachedProjectSnapshot();
   } catch (err) {
     console.error(err);
-    window.alert(`プロジェクトの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    alertDialog.show(`プロジェクトの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -1155,17 +1160,17 @@ async function loadVariantFromFile(file: File, mode: LoadMode): Promise<void> {
         (sizeResult) => {
           const doc = resizeDocumentToResult(imported.doc, sizeResult);
           const result = applyLoadedDocument({ doc, finalDoc: imported.finalDoc }, mode);
-          if (!result.ok) window.alert(`「${file.name}」を追加できません: ${result.reason}`);
+          if (!result.ok) alertDialog.show(`「${file.name}」を追加できません: ${result.reason}`);
         },
         { title: "新規に読み込み:ミニラフ解像度", applyLabel: "読み込む" }
       );
       return;
     }
     const result = applyLoadedDocument(imported, mode);
-    if (!result.ok) window.alert(`「${file.name}」を追加できません: ${result.reason}`);
+    if (!result.ok) alertDialog.show(`「${file.name}」を追加できません: ${result.reason}`);
   } catch (err) {
     console.error(err);
-    window.alert(`読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+    alertDialog.show(`読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
@@ -1195,7 +1200,7 @@ batchLoadFileInput.addEventListener("change", async () => {
     }
   }
   if (skipped.length > 0) {
-    window.alert(`以下のファイルは読み込めませんでした:\n${skipped.join("\n")}`);
+    alertDialog.show(`以下のファイルは読み込めませんでした:\n${skipped.join("\n")}`);
   }
 });
 
@@ -1311,7 +1316,7 @@ const batchExportDialog = new BatchExportDialog(async (result, count) => {
       }
     } catch (err) {
       console.error(err);
-      window.alert(`「${filename}」の書き出しに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+      alertDialog.show(`「${filename}」の書き出しに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 });
