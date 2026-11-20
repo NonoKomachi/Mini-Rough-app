@@ -217,7 +217,12 @@ export class ColorPicker {
     this.canvas.addEventListener("pointerdown", (e) => {
       this.canvas.setPointerCapture(e.pointerId);
       const p = this.toLocal(e);
-      this.dragMode = Math.abs(p.x) <= SQUARE_HALF && Math.abs(p.y) <= SQUARE_HALF ? "square" : "ring";
+      // 正方形は輪の内接円(半径R_INNER)に四隅がちょうど収まるサイズなので、正方形の
+      // バウンディングボックスそのもので判定すると、正方形と内接円の間にできる4つの
+      // 隙間(特に角の近く)が輪(ring)側の判定になってしまい、正方形の端ぎりぎりに
+      // カーソルを合わせにくかった。中心からの距離がR_INNER以内かどうかで判定することで、
+      // その隙間も含めた内接円全体を正方形側(値は既存のクランプで自動的に端まで)として扱う。
+      this.dragMode = Math.hypot(p.x, p.y) <= R_INNER ? "square" : "ring";
       this.handlePointer(p);
     });
     this.canvas.addEventListener("pointermove", (e) => {
