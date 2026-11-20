@@ -34,7 +34,7 @@ import { VariantGrid, Variant, SizeMode } from "./variant-grid";
 import { DropdownMenu } from "./dropdown-menu";
 import { NewDocumentDialog } from "./new-document-dialog";
 import { CanvasSizeDialog, CanvasSizeResult } from "./canvas-size-dialog";
-import { SaveDialog } from "./save-dialog";
+import { SaveDialog, SaveFormat } from "./save-dialog";
 import { BatchExportDialog } from "./batch-export-dialog";
 import { ColorDialog } from "./color-dialog";
 import { SizePresetDialog } from "./size-preset-dialog";
@@ -294,6 +294,38 @@ function downloadBytes(bytes: Uint8Array, filename: string): void {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+const EXPORT_FORMAT_MIME: Record<SaveFormat, string> = {
+  clip: "application/octet-stream",
+  psd: "application/octet-stream",
+  png: "image/png",
+  jpeg: "image/jpeg",
+  bmp: "image/bmp",
+  gif: "image/gif"
+};
+
+/** 「出力」で書き出したファイルは、対応ブラウザでは保存先を選ぶ保存ダイアログへ書き込み、
+ * 非対応ブラウザでのみ(数が増えると)ダウンロードフォルダを汚しがちな従来のダウンロード方式に
+ * フォールバックする(ユーザー指示)。保存/名前を変えて保存と同じ考え方。 */
+async function saveExportedBytes(bytes: Uint8Array, filename: string, format: SaveFormat): Promise<void> {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ accept: { [EXPORT_FORMAT_MIME[format]]: [`.${extensionFor(format)}`] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(bytes);
+      await writable.close();
+      return;
+    } catch (err) {
+      if (isAbortError(err)) return; // ユーザーがファイル選択をキャンセルした
+      console.error(err);
+      // ピッカー自体が失敗した場合は、従来のダウンロード方式にフォールバックする。
+    }
+  }
+  downloadBytes(bytes, filename);
 }
 
 function downloadText(text: string, filename: string): void {
@@ -586,7 +618,7 @@ function openSaveDialogForActive(): void {
   saveDialog.show(async (result) => {
     try {
       const bytes = await exportDocumentAs(active.doc, result.format, result.size);
-      downloadBytes(bytes, `mini-rough.${extensionFor(result.format)}`);
+      await saveExportedBytes(bytes, `mini-rough.${extensionFor(result.format)}`, result.format);
     } catch (err) {
       console.error(err);
       alertDialog.show(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
