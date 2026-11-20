@@ -275,6 +275,11 @@ export class CanvasWidget {
   }
 
   private onPointerDown = (e: PointerEvent): void => {
+    // 右クリック(button===2、中クリック等も含む)は常にonContextMenu側のスポイト専用にする —
+    // ボタン種別を見ずに通していたため、右クリックでも現在のツール(鉛筆・消しゴム・バケツ等)の
+    // 描画がそのまま始まってしまい、スポイトのはずが意図せず描き込む/undo履歴を汚す不具合が
+    // あった。
+    if (e.button !== 0) return;
     // isEditablePointer()より前にSetへ追加する — このポインター自身を含めた「今何本触れているか」
     // で判定する必要があるため(追加を後回しにすると、2本目の指が常に「まだ1本」として許可されてしまう)。
     if (e.pointerType === "touch") this.activeTouchPointerIds.add(e.pointerId);
