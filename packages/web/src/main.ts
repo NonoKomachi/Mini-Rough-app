@@ -47,6 +47,7 @@ import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
 import { ConfirmDialog } from "./confirm-dialog";
 import { AlertDialog } from "./alert-dialog";
 import { PromptDialog } from "./prompt-dialog";
+import { isPenActive } from "./pen-state";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
 import {
@@ -1971,6 +1972,9 @@ window.addEventListener("keydown", (e) => {
 
   canvasViewport.addEventListener("pointerdown", (e) => {
     if (e.pointerType !== "touch" && e.pointerType !== "mouse") return; // ペンは常に描画専用。
+    // ペンが触れている間は、手のひらの誤タッチ(パームリジェクション)としてタッチでの
+    // パンも一切受け付けない(ユーザー要望)。マウスはペンの有無に関係なく常に有効。
+    if (e.pointerType === "touch" && isPenActive()) return;
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activePointers.size === 1) {
       if (isInsideDocCanvas(e.target)) return; // キャンバス上の1本指は描画に使わせる。
@@ -1991,6 +1995,8 @@ window.addEventListener("keydown", (e) => {
 
   canvasViewport.addEventListener("pointermove", (e) => {
     if (!activePointers.has(e.pointerId)) return;
+    // パン中に途中からペンが触れた場合も、以降はタッチでの移動を無視する(パームリジェクション)。
+    if (e.pointerType === "touch" && isPenActive()) return;
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (!panning) return;
     if (panningPointerId !== null && panningPointerId !== e.pointerId) return;
