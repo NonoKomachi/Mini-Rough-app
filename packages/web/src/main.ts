@@ -44,6 +44,7 @@ import { exportDocumentAs, extensionFor } from "./export-helpers";
 import { rgbToHex, checkeredBackgroundImage } from "./color-utils";
 import { serializeProject, deserializeProject } from "./project-file";
 import { UnsavedChangesDialog } from "./unsaved-changes-dialog";
+import { ConfirmDialog } from "./confirm-dialog";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
 import {
@@ -346,6 +347,7 @@ const helpDialog = new HelpDialog();
 const canvasSizeDialog = new CanvasSizeDialog();
 const saveDialog = new SaveDialog();
 const unsavedChangesDialog = new UnsavedChangesDialog();
+const confirmDialog = new ConfirmDialog();
 
 /** CanvasSizeDialogの入力結果をDocumentへ適用する。ミニラフ解像度が変わらない場合は完成サイズ/
  * dpiだけをその場で書き換え(リサンプル不要)、変わる場合だけ新しいDocumentを作って返す。 */
@@ -522,13 +524,19 @@ function fillActiveLayer(): void {
 function deleteActiveVariant(): void {
   const active = requireActiveVariant();
   if (!active) return;
-  if (!window.confirm(`バリエーション「${active.label}」を削除しますか？この操作は元に戻せません。`)) return;
-  if (grid.removeVariant(active.id) === "only-one") {
-    const d = active.doc;
-    const zoom = active.widget.getZoom();
-    grid.resizeActive(Document.createDefault(d.width, d.height, d.finalWidth, d.finalHeight, d.dpi));
-    active.widget.setZoom(zoom);
-  }
+  confirmDialog.show(
+    `バリエーション「${active.label}」を削除しますか？この操作は元に戻せません。`,
+    (choice) => {
+      if (choice !== "confirm") return;
+      if (grid.removeVariant(active.id) === "only-one") {
+        const d = active.doc;
+        const zoom = active.widget.getZoom();
+        grid.resizeActive(Document.createDefault(d.width, d.height, d.finalWidth, d.finalHeight, d.dpi));
+        active.widget.setZoom(zoom);
+      }
+    },
+    { confirmLabel: "削除" }
+  );
 }
 
 function openSaveDialogForActive(): void {
