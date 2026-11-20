@@ -760,6 +760,27 @@ async function saveProjectToNewLocation(json: string): Promise<void> {
 async function saveProjectFile(): Promise<void> {
   const json = await buildProjectJson();
 
+  // ページをリロードした直後は、前回保存/開いた実ファイルのハンドル自体はIndexedDBに
+  // 残っていてもcurrentProjectFileHandleにはまだ復元されていないことが多い —
+  // File System Access APIの書き込み権限はブラウザの再起動/リロードを跨ぐと
+  // (セキュリティ上の理由で)「許可済み」のままにはならず「要確認」に戻ることが
+  // ほとんどで、起動時の無言の自動復元(tryAutoRestoreOnStartup、ユーザー操作を伴わない)
+  // はそれを拾えない。ここは「保存」ボタン/ショートカットという紛れもないユーザー操作
+  // なので、requestPermissionで改めて許可を求め直すことができる — 許可が得られれば
+  // そのまま同じファイルへの上書きとして扱う(これが無いと、リロード後は毎回
+  // 「名前を変えて保存」のように新しい保存先を聞かれてしまっていた)。
+  if (!currentProjectFileHandle) {
+    const stored = await getStoredProjectFileHandle();
+    if (stored) {
+      try {
+        const permission = await stored.requestPermission({ mode: "readwrite" });
+        if (permission === "granted") currentProjectFileHandle = stored;
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }
+
   if (currentProjectFileHandle) {
     try {
       await writeTextToHandle(currentProjectFileHandle, json);
