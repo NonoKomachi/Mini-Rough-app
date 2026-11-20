@@ -38,6 +38,10 @@ export class SaveDialog {
   private readonly customFieldsEl: Element;
   private readonly finalLabelEl: Element;
   private readonly miniLabelEl: Element;
+  /** カスタムサイズ欄の縦横比(幅/高さ) — ダイアログを開いた時点のミニラフ解像度から固定する
+   * (ユーザー要望: カスタムサイズは縦横比固定)。片方を編集すると、もう片方をこの比率に
+   * 合わせて自動的に計算し直す。 */
+  private customAspectRatio = 1;
   private onSave: (result: SaveResult) => void = () => {};
 
   constructor(title = "出力") {
@@ -93,6 +97,18 @@ export class SaveDialog {
       radio.addEventListener("change", updateCustomFieldsUi);
     }
 
+    // 縦横比固定: 片方を編集したら、もう片方をcustomAspectRatioに合わせて自動計算し直す。
+    // 編集した側のinput自身は上書きしない(入力中にカーソル位置が飛ぶ/末尾の0が消える等の
+    // 違和感を避けるため)。
+    this.customWidthInput.addEventListener("input", () => {
+      const width = Math.max(1, Math.round(Number(this.customWidthInput.value) || 1));
+      this.customHeightInput.value = String(Math.max(1, Math.round(width / this.customAspectRatio)));
+    });
+    this.customHeightInput.addEventListener("input", () => {
+      const height = Math.max(1, Math.round(Number(this.customHeightInput.value) || 1));
+      this.customWidthInput.value = String(Math.max(1, Math.round(height * this.customAspectRatio)));
+    });
+
     box.querySelector(".cancel-btn")!.addEventListener("click", () => this.hide());
     box.querySelector(".create-btn")!.addEventListener("click", () => {
       this.onSave({
@@ -119,7 +135,8 @@ export class SaveDialog {
     this.finalLabelEl.textContent = `完成サイズ (${context.finalWidth} × ${context.finalHeight} px)`;
     this.miniLabelEl.textContent = `ミニラフサイズ (${context.miniWidth} × ${context.miniHeight} px)`;
     // カスタム欄の初期値はミニラフ解像度 — 完成サイズ/ミニラフどちらとも独立に、ここから
-    // 自由に書き換えて使ってもらう想定(ユーザー要望)。
+    // 自由に書き換えて使ってもらう想定(ユーザー要望)。縦横比もこの時点の値で固定する。
+    this.customAspectRatio = context.miniWidth / context.miniHeight;
     this.customWidthInput.value = String(context.miniWidth);
     this.customHeightInput.value = String(context.miniHeight);
     this.sizeFinalRadio.checked = true;
