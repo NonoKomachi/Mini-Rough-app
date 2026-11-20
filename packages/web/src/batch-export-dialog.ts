@@ -102,7 +102,7 @@ export class BatchExportDialog {
       digits: Math.max(1, Number(this.digitsInput.value) || 1),
       suffix: this.suffixInput.value,
       format: this.formatSelect.value as SaveFormat,
-      size: this.sizeFinalRadio.checked ? "final" : "mini"
+      size: this.sizeFinalRadio.checked ? { mode: "final" } : { mode: "mini" }
     };
   }
 

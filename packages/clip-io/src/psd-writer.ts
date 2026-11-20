@@ -40,18 +40,21 @@ function toPsdBlendMode(composite: number): PsdBlendMode {
 }
 
 export interface PsdExportOptions {
-  /** "final" upscales every layer to doc.finalWidth/Height; "mini" keeps the working resolution. */
-  size: "final" | "mini";
+  /** 書き出し先の実ピクセルサイズ。doc.width/height(ミニラフ解像度)と異なる場合だけ
+   * 各レイヤーをnearest-neighborでリサンプルする — 完成サイズ(doc.finalWidth/Height)、
+   * ミニラフそのまま(doc.width/Height)、カスタムサイズのいずれも同じ仕組みで扱える。 */
+  targetWidth: number;
+  targetHeight: number;
 }
 
-export function exportDocumentToPsd(doc: Document, options: PsdExportOptions = { size: "final" }): Uint8Array {
-  const width = options.size === "final" ? doc.finalWidth : doc.width;
-  const height = options.size === "final" ? doc.finalHeight : doc.height;
+export function exportDocumentToPsd(doc: Document, options: PsdExportOptions): Uint8Array {
+  const { targetWidth: width, targetHeight: height } = options;
+  const needsResample = width !== doc.width || height !== doc.height;
 
   const psd: Psd = {
     width,
     height,
-    children: buildLayers(doc.layers, doc, width, height, options.size)
+    children: buildLayers(doc.layers, doc, width, height, needsResample)
   };
   return writePsdUint8Array(psd, { noBackground: true });
 }
@@ -62,18 +65,18 @@ function buildLayers(
   doc: Document,
   width: number,
   height: number,
-  size: "final" | "mini"
+  needsResample: boolean
 ): Layer[] {
   const result: Layer[] = [];
   for (let i = nodes.length - 1; i >= 0; i--) {
     const node = nodes[i];
     if (node.kind === "layer") {
-      const pixels = size === "final" ? upscaleNearestNeighbor(node.pixels, doc.width, doc.height, width, height) : node.pixels;
+      const pixels = needsResample ? upscaleNearestNeighbor(node.pixels, doc.width, doc.height, width, height) : node.pixels;
       // ag-psd reads a mask's imageData the same way as a layer's own (RGBA, channel 0 = the
       // mask value), so the existing grayscale-replicated-to-RGBA mask buffer works unchanged.
       const maskPixels =
         node.mask && node.maskEnabled
-          ? size === "final"
+          ? needsResample
             ? upscaleNearestNeighbor(node.mask, doc.width, doc.height, width, height)
             : node.mask
           : undefined;
@@ -93,7 +96,7 @@ function buildLayers(
         hidden: !node.visible,
         blendMode: "pass through",
         opened: true,
-        children: buildLayers(node.children, doc, width, height, size)
+        children: buildLayers(node.children, doc, width, height, needsResample)
       });
     }
   }

@@ -7,8 +7,11 @@ export type FlatImageFormat = "png" | "jpeg" | "bmp" | "gif";
 
 export interface FlatImageExportOptions {
   format: FlatImageFormat;
-  /** "final" upscales to doc.finalWidth/Height (the default); "mini" keeps the working resolution. */
-  size: "final" | "mini";
+  /** 書き出し先の実ピクセルサイズ。doc.width/height(ミニラフ解像度)と異なる場合だけ
+   * nearest-neighborでリサンプルする — 完成サイズ(doc.finalWidth/Height)、ミニラフそのまま
+   * (doc.width/Height)、カスタムサイズのいずれも同じ仕組みで扱える。 */
+  targetWidth: number;
+  targetHeight: number;
   /** 0..1, only used for "jpeg". */
   jpegQuality?: number;
   /** Composited onto this before flattening to formats with no alpha channel (jpeg, bmp). White by default. */
@@ -17,12 +20,12 @@ export interface FlatImageExportOptions {
 
 /** Flattens the document (composeDocument) and encodes it as a single-image file. */
 export async function exportDocumentToFlatImage(doc: Document, options: FlatImageExportOptions): Promise<Uint8Array> {
-  const width = options.size === "final" ? doc.finalWidth : doc.width;
-  const height = options.size === "final" ? doc.finalHeight : doc.height;
+  const { targetWidth: width, targetHeight: height } = options;
+  const needsResample = width !== doc.width || height !== doc.height;
   const background = options.background ?? [255, 255, 255];
 
   const composited = composeDocument(doc);
-  const pixels = options.size === "final" ? upscaleNearestNeighbor(composited, doc.width, doc.height, width, height) : composited;
+  const pixels = needsResample ? upscaleNearestNeighbor(composited, doc.width, doc.height, width, height) : composited;
 
   if (options.format === "bmp") return encodeBmp(pixels, width, height, background);
   if (options.format === "gif") return encodeGif(pixels, width, height);

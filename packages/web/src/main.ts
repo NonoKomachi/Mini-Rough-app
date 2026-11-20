@@ -615,15 +615,19 @@ function deleteActiveVariant(): void {
 function openSaveDialogForActive(): void {
   const active = requireActiveVariant();
   if (!active) return;
-  saveDialog.show(async (result) => {
-    try {
-      const bytes = await exportDocumentAs(active.doc, result.format, result.size);
-      await saveExportedBytes(bytes, `mini-rough.${extensionFor(result.format)}`, result.format);
-    } catch (err) {
-      console.error(err);
-      alertDialog.show(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+  const d = active.doc;
+  saveDialog.show(
+    { miniWidth: d.width, miniHeight: d.height, finalWidth: d.finalWidth, finalHeight: d.finalHeight },
+    async (result) => {
+      try {
+        const bytes = await exportDocumentAs(active.doc, result.format, result.size);
+        await saveExportedBytes(bytes, `mini-rough.${extensionFor(result.format)}`, result.format);
+      } catch (err) {
+        console.error(err);
+        alertDialog.show(`保存に失敗しました: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
-  });
+  );
 }
 
 function flipActiveHorizontal(): void {
