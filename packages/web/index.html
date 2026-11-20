@@ -733,6 +733,14 @@
          スライドアップして開く(見出しをタップするだけでも開閉トグル)。 */
       body.portrait-layout #main-area {
         flex-direction: column;
+        /* レイヤーパネルの「つまみ」(.layer-panel-handle)は閉じている間も画面下端に常に
+           position:fixedで重なって見えている。#main-area自体はそのことを知らず画面最下部まで
+           広がるため、何も対策しないとキャンバス表示領域の一番下(スクロールし切った位置)が
+           つまみの下に隠れて見えなくなっていた。#main-areaの下にちょうどつまみの高さ分だけ
+           余白を作ることで、キャンバス側(getBoundingClientRect/clientHeightを使う
+           フィット・中央寄せ・スクロール範囲の計算全て)がその分だけ「使える領域が狭い」と
+           正しく認識するようになり、スクロールし切った位置がつまみのすぐ上でちょうど止まる。 */
+        margin-bottom: var(--layer-drawer-handle-h);
       }
       body.portrait-layout #canvas-container {
         order: 1;
