@@ -722,27 +722,11 @@ async function buildProjectJson(): Promise<string> {
   });
 }
 
-/** 手動の「保存」。どの経路で成功しても、自動保存用キャッシュ(project-file-handle.tsの
- * スナップショット)はクリアする — 実ファイルに保存できた以上、未保存作業の保険だったキャッシュ
- * は用済みで、残しておくと次回起動時に古い(保存済みの)内容を自動復元の対象として誤って
- * 拾ってしまう。 */
-async function saveProjectFile(): Promise<void> {
-  const json = await buildProjectJson();
-
-  if (currentProjectFileHandle) {
-    try {
-      await writeTextToHandle(currentProjectFileHandle, json);
-      isDirty = false;
-      void clearCachedProjectSnapshot();
-      return;
-    } catch (err) {
-      console.error(err);
-      // 前回選んだファイルが削除/移動された等で書き込めなくなっていたら、ハンドルを諦めて
-      // 下の「新しい保存先を選ぶ」側にフォールバックする。
-      currentProjectFileHandle = undefined;
-    }
-  }
-
+/** 新しい保存先を選んで(File System Access対応ブラウザなら保存ダイアログ、非対応なら
+ * ダウンロード)書き込む — 「保存」が初回/ハンドル紛失時にフォールバックする経路と、
+ * 「名前を変えて保存」が常に通る経路を共通化したもの。成功すればcurrentProjectFileHandleを
+ * 新しい保存先に差し替える(以後の「保存」はこちらを上書きする)。 */
+async function saveProjectToNewLocation(json: string): Promise<void> {
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -765,6 +749,38 @@ async function saveProjectFile(): Promise<void> {
   downloadText(json, "mini-rough.mrk");
   isDirty = false;
   void clearCachedProjectSnapshot();
+}
+
+/** 手動の「保存」。前回保存/開いた実ファイルがあれば常にそこへ上書きする(ユーザー指示:
+ * 保存は基本的に上書き保存)。初回、またはそのファイルへ書き込めなくなっていた場合だけ、
+ * 新しい保存先を選ぶ(saveProjectToNewLocation)側にフォールバックする。
+ * どの経路で成功しても、自動保存用キャッシュ(project-file-handle.tsのスナップショット)は
+ * クリアする — 実ファイルに保存できた以上、未保存作業の保険だったキャッシュは用済みで、
+ * 残しておくと次回起動時に古い(保存済みの)内容を自動復元の対象として誤って拾ってしまう。 */
+async function saveProjectFile(): Promise<void> {
+  const json = await buildProjectJson();
+
+  if (currentProjectFileHandle) {
+    try {
+      await writeTextToHandle(currentProjectFileHandle, json);
+      isDirty = false;
+      void clearCachedProjectSnapshot();
+      return;
+    } catch (err) {
+      console.error(err);
+      // 前回選んだファイルが削除/移動された等で書き込めなくなっていたら、ハンドルを諦めて
+      // 下の「新しい保存先を選ぶ」側にフォールバックする。
+      currentProjectFileHandle = undefined;
+    }
+  }
+
+  await saveProjectToNewLocation(json);
+}
+
+/** 「名前を変えて保存」。前回のファイルの有無に関わらず、常に新しい保存先を選ばせる。 */
+async function saveProjectFileAs(): Promise<void> {
+  const json = await buildProjectJson();
+  await saveProjectToNewLocation(json);
 }
 
 /** 自動保存タイマーの1tick。手動の保存とは違い、File System Access未対応/ハンドル未確立でも
@@ -1247,6 +1263,7 @@ addMenuButton("ファイル", (container, m) => {
   m.addItem(container, "追加で読み込み", () => startLoadAdd(), "Ctrl+R");
   m.addItem(container, "一括読み込み", () => batchLoadFileInput.click(), "Ctrl+Shift+R");
   m.addItem(container, "保存", () => void saveProjectFile(), "Ctrl+S");
+  m.addItem(container, "名前を変えて保存", () => void saveProjectFileAs(), "Ctrl+Shift+S");
   m.addItem(container, "出力", () => openSaveDialogForActive(), "Alt+S");
   m.addItem(container, "一括出力", () => batchExportDialog.show(grid.getAll().length), "Alt+Shift+S");
   m.addItem(container, "閉じる", () => {
@@ -1860,7 +1877,7 @@ updateToolbarLayout();
 //   Alt+Shift:  S=一括出力
 //   Ctrl:       Z=戻る, Y=進む, D=選択解除, A=全選択, N=新規バリエーション, O=開く,
 //               R=追加で読み込み, S=保存, C=コピー, X=切り取り, V=貼り付け, T=拡大・縮小・回転
-//   Ctrl+Shift: N=新規, R=一括読み込み, Delete=バリエーション削除, T=自由変形
+//   Ctrl+Shift: N=新規, R=一括読み込み, S=名前を変えて保存, Delete=バリエーション削除, T=自由変形
 // ---------------------------------------------------------------------------
 window.addEventListener("keydown", (e) => {
   if (e.metaKey) return;
@@ -1912,6 +1929,9 @@ window.addEventListener("keydown", (e) => {
       } else if (key === "r") {
         e.preventDefault();
         batchLoadFileInput.click();
+      } else if (key === "s") {
+        e.preventDefault();
+        void saveProjectFileAs();
       } else if (e.key === "Delete") {
         e.preventDefault();
         deleteActiveVariant();
