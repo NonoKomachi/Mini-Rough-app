@@ -461,8 +461,24 @@ let isDirty = false;
 // 「閉じる」メニューで確認済みの場合、直後に発火するbeforeunloadの標準ダイアログと二重に
 // 聞かれないようにするためのフラグ。
 let suppressUnloadConfirm = false;
+// 編集のたびにこのタイマーを立て直し、一定時間(連続した編集が落ち着いた頃)経ったら
+// 自動保存する。setInterval式の定期保存(既定5分間隔)はタブがバックグラウンド/非アクティブの
+// 間ブラウザに強くスロットリングされ、最悪ページごと凍結されて何分経っても一切発火しない
+// ことがある — ブラウザがクラッシュ/強制終了する、電源が落ちるなど「閉じる前触れ」を伴わず
+// 不意に消える場合にはvisibilitychangeにも頼れないため、タブがアクティブかどうかに関係なく
+// 編集のたびその場で保存の予約をする、という方式でないと信頼できない(ユーザー指示)。
+// 編集はほぼ必ずタブがアクティブな間に起きるので、この短いタイマー自体がスロットリングの
+// 影響を受けることはまず無い。
+let editAutoSaveTimer: ReturnType<typeof setTimeout> | undefined;
+const EDIT_AUTO_SAVE_DELAY_MS = 3000;
 grid.onEdit = () => {
   isDirty = true;
+  if (editAutoSaveTimer !== undefined) clearTimeout(editAutoSaveTimer);
+  if (!appSettings.autoSaveEnabled) return;
+  editAutoSaveTimer = setTimeout(() => {
+    editAutoSaveTimer = undefined;
+    void autoSaveTick();
+  }, EDIT_AUTO_SAVE_DELAY_MS);
 };
 window.addEventListener("beforeunload", (e) => {
   if (!isDirty || suppressUnloadConfirm) return;
