@@ -244,6 +244,9 @@ export class VariantGrid {
     const doc = Document.createDefault(d.width, d.height, d.finalWidth, d.finalHeight, d.dpi);
     const variant = this.addVariant(doc);
     variant.widget.setZoom(1);
+    // addVariant()内のsetActive()が中央寄せした直後に、このsetZoom(1)がその表示状態を
+    // (等倍への変更に合わせて)作り直してしまうため、最後にもう一度中央へ合わせ直す。
+    this.scrollTileToCenter(variant);
     return variant;
   }
 
@@ -259,6 +262,9 @@ export class VariantGrid {
     restoreLayers(doc, snapshotLayers(d));
     const variant = this.addVariant(doc);
     variant.widget.setZoom(1);
+    // addVariant()内のsetActive()が中央寄せした直後に、このsetZoom(1)がその表示状態を
+    // (等倍への変更に合わせて)作り直してしまうため、最後にもう一度中央へ合わせ直す。
+    this.scrollTileToCenter(variant);
     return variant;
   }
 
@@ -447,9 +453,16 @@ export class VariantGrid {
     // 全体フィッティング中に別のバリエーションへ切り替えた時はそのまま再適用する(元々の
     // 仕様どおり)。単体フィッティングはボタンを押した直後の一回限りの処理であって、ただ
     // アクティブなバリエーションを切り替えただけで勝手に再適用・前のタイルの縮小/拡大が
-    // 起きるべきではない(ユーザー指示) — 以前フィットしたタイルは、再度単体フィッティング
-    // ボタンが押されるまでそのまま(フォーカスされた位置)に残る。
-    if (this.autoFitMode === "all") this.applyFitAll();
+    // 起きるべきではない(ユーザー指示) — 以前フィットしたタイルのズーム/サイズは、再度
+    // 単体フィッティングボタンが押されるまでそのまま残る。
+    if (this.autoFitMode === "all") {
+      this.applyFitAll();
+    } else if (active) {
+      // タブを切り替えた時の「既定の位置」は、そのバリエーションが表示領域の中央に見える
+      // 位置であるべき(ユーザー指示) — あふれていて中央に届かない場合は、resetGridSlack()
+      // が付けた余白(あふれている軸だけ)のおかげで中央まで届く。
+      this.scrollTileToCenter(active);
+    }
   }
 
   getActiveSizeMode(): SizeMode | undefined {
@@ -587,6 +600,13 @@ export class VariantGrid {
    *    さらに中央まで持ってこられる余地を常に残しておくため(ユーザー要望)。あふれていない軸
    *    には何も足さないので、収まっている時に不要なスクロールバーが出ることはない。 */
   private resetGridSlack(): void {
+    // マージンを一旦""に戻してから測り直す都合上、その一瞬だけスクロール可能範囲が
+    // 縮むため、ブラウザが現在のscrollLeft/scrollTopをその場で切り詰めてしまうことがあった
+    // (新しいマージンを付け直した後も、切り詰められた値はそのままで元には戻らない) —
+    // 呼び出し前の位置を保存しておき、最後に新しい範囲の中で(自然にクランプされつつ)
+    // 復元することで、resetGridSlack()を呼んだだけで今の表示位置が勝手にずれることを防ぐ。
+    const savedScrollLeft = this.container.scrollLeft;
+    const savedScrollTop = this.container.scrollTop;
     this.gridEl.style.marginLeft = "";
     this.gridEl.style.marginRight = "";
     this.gridEl.style.marginTop = "";
@@ -612,6 +632,8 @@ export class VariantGrid {
       this.gridEl.style.marginTop = half;
       this.gridEl.style.marginBottom = half;
     }
+    this.container.scrollLeft = savedScrollLeft;
+    this.container.scrollTop = savedScrollTop;
   }
 
   /** 指定した方向のmarginを、今の値より大きい場合だけ引き上げる — resetGridSlack()が既に
