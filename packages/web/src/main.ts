@@ -1939,12 +1939,14 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// バリエーション表示領域(#canvas-viewport)のタッチドラッグでのスクロール。
-//   ・1本指: キャンバスの外(タイル間の余白・非アクティブなバリエーション等)で始めた場合のみ
-//     スクロール対象にする。キャンバス上で始めた1本指は描画に使うため奪わない — ブラウザは
-//     「描画中の連続ドラッグ」と「スクロール操作」を1本指の動きだけでは区別できないため、
-//     両立できない(ユーザー確認済み: キャンバス外=1本指、キャンバス内=2本指で使い分ける)。
-//   ・2本指: キャンバスの内外を問わず常にスクロール対象。ピンチズーム(距離の変化、
+// バリエーション表示領域(#canvas-viewport)のタッチ/マウスドラッグでのスクロール。
+//   ・1本指(タッチ)・マウス: キャンバスの外(タイル間の余白・非アクティブなバリエーション等)
+//     で始めた場合のみスクロール対象にする。キャンバス上で始めた場合は描画に使うため奪わない —
+//     ブラウザは「描画中の連続ドラッグ」と「スクロール操作」を1本の動きだけでは区別できない
+//     ため、両立できない(ユーザー確認済み: キャンバス外=スクロール、キャンバス内=描画/
+//     タッチは2本指でスクロールという使い分け)。マウスは常に1ポインターなので、この
+//     1本指と同じ分岐をそのまま通る。
+//   ・2本指(タッチのみ): キャンバスの内外を問わず常にスクロール対象。ピンチズーム(距離の変化、
 //     canvas-widget.ts側で処理)とは独立に、2本指の中点の移動量でスクロールする —
 //     ピンチしながら同時に平行移動もできる(地図アプリのピンチ操作と同じ感覚)。
 // ---------------------------------------------------------------------------
@@ -1968,7 +1970,7 @@ window.addEventListener("keydown", (e) => {
   }
 
   canvasViewport.addEventListener("pointerdown", (e) => {
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch" && e.pointerType !== "mouse") return; // ペンは常に描画専用。
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activePointers.size === 1) {
       if (isInsideDocCanvas(e.target)) return; // キャンバス上の1本指は描画に使わせる。
@@ -1998,7 +2000,7 @@ window.addEventListener("keydown", (e) => {
   });
 
   const endTouch = (e: PointerEvent): void => {
-    if (e.pointerType !== "touch") return;
+    if (e.pointerType !== "touch" && e.pointerType !== "mouse") return;
     activePointers.delete(e.pointerId);
     if (activePointers.size === 0) {
       panning = false;

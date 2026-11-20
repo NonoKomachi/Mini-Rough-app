@@ -108,6 +108,12 @@ export class VariantGrid {
     this.onActiveChange = onActiveChange;
 
     new ResizeObserver(() => {
+      // 単体フィッティングが中央寄せのために付けたmargin/min-width/min-height(あれば)は
+      // コンテナの寸法が変わった時点でもう正しい値ではなくなる — 消さずに残すと、リサイズ後は
+      // 必要ないはずのスクロールバーがその古い値のせいでずっと出続けてしまう(タイル自体の
+      // サイズは別途grid-column/row spanで保持されるので、これを消してもタイルが縮む/
+      // 単体フィッティングが再適用されることはない=ユーザー指示には抵触しない)。
+      this.clearCenterSlack();
       // 単体フィッティングはボタンを押した時の一回限りの処理であって、ビューポートの
       // リサイズに追従して勝手に再適用するものではない(ユーザー指示) — 全体フィッティングは
       // 元々の仕様どおりリサイズに追従する。
@@ -412,6 +418,12 @@ export class VariantGrid {
   }
 
   setActive(id: string): void {
+    // 単体フィッティングが中央寄せのために付けたmargin/min-width/min-height(あれば)は、
+    // 別のバリエーションへ切り替えた時点で中央寄せの対象がもう存在しないので意味を失う —
+    // 消さずに残すと、以後ずっと(その古い値のせいで)必要ないスクロールバーが出続けてしまう。
+    // タイル自体のサイズはgrid-column/row spanで別途保持されるので、ここで消しても
+    // 「以前フィットしたタイルはそのまま残る」という仕様(ユーザー指示)には影響しない。
+    this.clearCenterSlack();
     this.activeId = id;
     for (const v of this.variants) {
       v.tileEl.classList.toggle("active", v.id === id);
