@@ -1,5 +1,6 @@
 import { Document, RasterLayer, composeDocument, maskHasSelection, StrokeTool, DragTool, PickTool, RGBA, Point, isDragTool, isPickTool } from "@mini-rough/core";
 import { TransformSession, HandleKind } from "./transform-session";
+import { isPenActive } from "./pen-state";
 
 function midpoint(a: Point, b: Point): Point {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
@@ -260,10 +261,12 @@ export class CanvasWidget {
 
   /** 既定ではマウス/ペンのみ編集可能。touchEditingEnabled時(縦長レイアウト)は1本指タッチも
    * 編集扱いにするが、2本指以上が触れている間は常に拒否する — 複数指ジェスチャー(2本指Undo/
-   * 3本指Redo/ピンチズーム、touchstart/touchmove/touchend側で別途処理)と描画が競合しないように。 */
+   * 3本指Redo/ピンチズーム、touchstart/touchmove/touchend側で別途処理)と描画が競合しないように。
+   * ペンが画面に触れている間は、描いている手のひらの誤タッチ(パームリジェクション)として
+   * タッチを一切編集扱いにしない(ユーザー要望)。 */
   private isEditablePointer(e: PointerEvent): boolean {
     if (e.pointerType !== "touch") return true;
-    return this.touchEditingEnabled && this.activeTouchPointerIds.size <= 1;
+    return this.touchEditingEnabled && this.activeTouchPointerIds.size <= 1 && !isPenActive();
   }
 
   /** 縦長レイアウト等、スマホでの指描画を許可するかどうかを切り替える。 */
@@ -471,6 +474,9 @@ export class CanvasWidget {
   }
 
   private onTouchStart = (e: TouchEvent): void => {
+    // ペンが触れている間は、手のひらの誤タッチ(パームリジェクション)としてタッチの
+    // ジェスチャー(ピンチズーム・2本指Undo・3本指Redo)も一切拾わない(ユーザー要望)。
+    if (isPenActive()) return;
     // 1本指での描画中(タッチ編集有効時)に2本目以降が触れたら、ピンチ/タップジェスチャーを
     // 邪魔しないようにその場で描画を確定させる。
     if (e.touches.length >= 2 && this.isDrawing) {
@@ -493,6 +499,7 @@ export class CanvasWidget {
    * 競合しないようにするため(実際のスクロール自体はmain.ts側のPointer Eventベースの
    * 処理が#canvas-viewportに対して行う、ここでは発火させない)。 */
   private onTouchMove = (e: TouchEvent): void => {
+    if (isPenActive()) return;
     if (e.touches.length !== 2) return;
     e.preventDefault();
     const distance = this.touchDistance(e.touches);
@@ -508,6 +515,7 @@ export class CanvasWidget {
 
   /** A tap (no pinch movement) with two fingers undoes; with three fingers redoes. */
   private onTouchEnd = (e: TouchEvent): void => {
+    if (isPenActive()) return;
     if (!this.touchMoved) {
       if (this.touchCount === 2) this.onUndoGesture?.();
       else if (this.touchCount === 3) this.onRedoGesture?.();
