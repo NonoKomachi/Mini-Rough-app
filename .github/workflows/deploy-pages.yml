@@ -17,6 +17,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 「Environments → github-pages」側にSecretsを登録した場合でもbuildジョブから見えるように
+    # する(リポジトリ直下のSecretsとして登録済みなら、この指定が無くても元々見えている)。
+    environment: github-pages
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
