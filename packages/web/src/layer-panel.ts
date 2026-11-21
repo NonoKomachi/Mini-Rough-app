@@ -1,4 +1,4 @@
-import { Document, LayerNode, BLEND_MODE_OPTIONS } from "@mini-rough/core";
+import { Document, LayerNode, BLEND_MODE_OPTIONS, mergeLayerDown } from "@mini-rough/core";
 
 // 絵文字は機種(OS/フォント)で見た目が変わるため、レイヤーパネルのアイコンも自前のSVGで統一する。
 const PAGE_ICON_SVG = `
@@ -60,6 +60,14 @@ const DUPLICATE_ICON_SVG = `
   <path d="M7 4.5 V7 H9.5" fill="none" stroke="#333333" stroke-width="0.8"/>
 </svg>`;
 
+// 上下2枚の用紙が1枚に統合されることを示す、下向き矢印付きの「結合」アイコン。
+const MERGE_DOWN_ICON_SVG = `
+<svg viewBox="0 0 16 16" width="13" height="13" xmlns="http://www.w3.org/2000/svg">
+  <rect x="2" y="1" width="12" height="4.5" rx="1" fill="#ffffff" stroke="#333333" stroke-width="1"/>
+  <rect x="2" y="10.5" width="12" height="4.5" rx="1" fill="#cfcfcf" stroke="#333333" stroke-width="1"/>
+  <path d="M8 5.6 V9.4 M5.6 7.2 L8 9.6 L10.4 7.2" fill="none" stroke="#333333" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+
 export class LayerPanel {
   private readonly container: HTMLElement;
   private readonly doc: Document;
@@ -73,6 +81,7 @@ export class LayerPanel {
   private readonly maskBtn: HTMLButtonElement;
   private readonly clipBtn: HTMLButtonElement;
   private readonly duplicateBtn: HTMLButtonElement;
+  private readonly mergeDownBtn: HTMLButtonElement;
   /** Set once a drag gesture has moved past the threshold and is actually reordering a layer —
    * null while just tracking a pointerdown that might turn out to be a plain tap/click instead. */
   private draggingId: string | null = null;
@@ -167,6 +176,19 @@ export class LayerPanel {
       this.refresh();
     });
 
+    this.mergeDownBtn = document.createElement("button");
+    this.mergeDownBtn.innerHTML = MERGE_DOWN_ICON_SVG;
+    this.mergeDownBtn.title = "下のレイヤーと結合";
+    this.mergeDownBtn.addEventListener("click", () => {
+      const node = this.activeNode();
+      if (!node || node.kind !== "layer") return;
+      const below = this.doc.nodeBelow(node.id);
+      if (!below || below.kind !== "layer") return;
+      this.onBeforeChange();
+      mergeLayerDown(this.doc, node.id);
+      this.refresh();
+    });
+
     const spacer = document.createElement("span");
     spacer.className = "spacer";
 
@@ -185,6 +207,7 @@ export class LayerPanel {
     toolbar.appendChild(this.maskBtn);
     toolbar.appendChild(this.clipBtn);
     toolbar.appendChild(this.duplicateBtn);
+    toolbar.appendChild(this.mergeDownBtn);
     toolbar.appendChild(spacer);
     toolbar.appendChild(deleteBtn);
     this.container.appendChild(toolbar);
@@ -275,6 +298,8 @@ export class LayerPanel {
     this.maskBtn.disabled = !activeLayer;
     this.clipBtn.disabled = !activeLayer;
     this.duplicateBtn.disabled = !hasActive;
+    const belowNode = activeLayer ? this.doc.nodeBelow(activeLayer.id) : undefined;
+    this.mergeDownBtn.disabled = !activeLayer || !belowNode || belowNode.kind !== "layer";
     this.maskBtn.classList.toggle("active", !!activeLayer?.mask);
     this.clipBtn.classList.toggle("active", !!activeLayer?.clipToBelow);
     this.blendModeSelect.disabled = !activeLayer;

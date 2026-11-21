@@ -17,6 +17,9 @@ import {
   DragTool,
   EyedropperTool,
   MoveTool,
+  ShapeTool,
+  ShapeKind,
+  AngleMode,
   resizeDocumentMini,
   maskHasSelection,
   fillWithColor,
@@ -37,6 +40,8 @@ import { CanvasSizeDialog, CanvasSizeResult } from "./canvas-size-dialog";
 import { SaveDialog, SaveFormat } from "./save-dialog";
 import { BatchExportDialog } from "./batch-export-dialog";
 import { ColorDialog } from "./color-dialog";
+import { NamedPalette } from "./color-picker";
+import { PaletteManagerDialog } from "./palette-manager-dialog";
 import { SizePresetDialog } from "./size-preset-dialog";
 import { AboutDialog } from "./about-dialog";
 import { HelpDialog } from "./help-dialog";
@@ -91,7 +96,8 @@ const tools = {
   ellipseSelect: new EllipseSelectTool(),
   lassoSelect: new LassoSelectTool(),
   autoSelect: new AutoSelectTool(),
-  gradient: new GradientTool()
+  gradient: new GradientTool(),
+  shape: new ShapeTool()
 };
 
 type ToolId = keyof typeof tools;
@@ -244,6 +250,52 @@ const GRADIENT_ICON_SVG = `
   <rect x="3" y="7" width="18" height="10" rx="1.5" fill="url(#gradient-icon-fill)" stroke="#333333" stroke-width="1"/>
 </svg>`;
 
+// 図形ツール(直線/四角/丸/三角/星)。選択範囲系と同じく1つのグループボタン+プルダウンで
+// 切り替える(下のSHAPE_ICONS/SHAPE_TITLES/shapeGroupBtn参照)ので、ここではtoolIcons/toolTitles
+// (Record<ToolId,…>)を満たすための代表アイコン(四角)だけ割り当てる。
+const SHAPE_LINE_ICON_SVG = `
+<svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+  <line x1="4" y1="20" x2="20" y2="4" stroke="#333333" stroke-width="3" stroke-linecap="round"/>
+</svg>`;
+
+const SHAPE_RECT_ICON_SVG = `
+<svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="6" width="16" height="12" rx="1" fill="#8ec6f0" stroke="#333333" stroke-width="1.2"/>
+</svg>`;
+
+const SHAPE_ELLIPSE_ICON_SVG = `
+<svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+  <ellipse cx="12" cy="12" rx="8" ry="6" fill="#8ec6f0" stroke="#333333" stroke-width="1.2"/>
+</svg>`;
+
+const SHAPE_TRIANGLE_ICON_SVG = `
+<svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+  <polygon points="12,4 20,19 4,19" fill="#8ec6f0" stroke="#333333" stroke-width="1.2"/>
+</svg>`;
+
+const SHAPE_STAR_ICON_SVG = `
+<svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+  <polygon points="12,3 14.02,9.22 20.56,9.22 15.27,13.06 17.29,19.28 12,15.44 6.71,19.28 8.73,13.06 3.44,9.22 9.98,9.22" fill="#8ec6f0" stroke="#333333" stroke-width="1"/>
+</svg>`;
+
+const SHAPE_ICONS: Record<ShapeKind, string> = {
+  line: SHAPE_LINE_ICON_SVG,
+  rect: SHAPE_RECT_ICON_SVG,
+  ellipse: SHAPE_ELLIPSE_ICON_SVG,
+  triangle: SHAPE_TRIANGLE_ICON_SVG,
+  star: SHAPE_STAR_ICON_SVG
+};
+
+const SHAPE_TITLES: Record<ShapeKind, string> = {
+  line: "直線",
+  rect: "四角",
+  ellipse: "丸",
+  triangle: "三角",
+  star: "星"
+};
+
+const SHAPE_KIND_ORDER: ShapeKind[] = ["line", "rect", "ellipse", "triangle", "star"];
+
 const toolIcons: Record<ToolId, string> = {
   pencil: PENCIL_ICON_SVG,
   brush: BRUSH_ICON_SVG,
@@ -257,7 +309,8 @@ const toolIcons: Record<ToolId, string> = {
   ellipseSelect: ELLIPSE_SELECT_ICON_SVG,
   lassoSelect: LASSO_SELECT_ICON_SVG,
   autoSelect: AUTO_SELECT_ICON_SVG,
-  gradient: GRADIENT_ICON_SVG
+  gradient: GRADIENT_ICON_SVG,
+  shape: SHAPE_RECT_ICON_SVG
 };
 
 const toolTitles: Record<ToolId, string> = {
@@ -273,7 +326,8 @@ const toolTitles: Record<ToolId, string> = {
   ellipseSelect: "楕円選択",
   lassoSelect: "投げ縄選択",
   autoSelect: "自動選択(線画領域)",
-  gradient: "グラデーション"
+  gradient: "グラデーション",
+  shape: "図形"
 };
 
 function hasColor(tool: object): tool is { color: RGBA } {
@@ -370,11 +424,15 @@ function applyColorToTools(rgba: RGBA): void {
 // ---------------------------------------------------------------------------
 const colorDialog = new ColorDialog();
 // プロジェクトファイルの保存/読込で使う最新のパレット状態(ColorPickerから都度同期される)。
-let savedPaletteSwatches: string[] = [];
+let currentPalettes: NamedPalette[] = colorDialog.getPalettes();
+let currentActivePaletteId: string = colorDialog.getActivePaletteId();
 let tempPaletteSwatches: string[] = [];
-colorDialog.onPaletteChange((kind, swatches) => {
-  if (kind === "custom") savedPaletteSwatches = swatches;
-  else tempPaletteSwatches = swatches;
+colorDialog.onPalettesChange((palettes, activeId) => {
+  currentPalettes = palettes;
+  currentActivePaletteId = activeId;
+});
+colorDialog.onTempSwatchesChange((swatches) => {
+  tempPaletteSwatches = swatches;
 });
 const sizePresetDialog = new SizePresetDialog();
 const aboutDialog = new AboutDialog();
@@ -385,6 +443,62 @@ const unsavedChangesDialog = new UnsavedChangesDialog();
 const confirmDialog = new ConfirmDialog();
 const alertDialog = new AlertDialog();
 const promptDialog = new PromptDialog();
+const paletteManagerDialog = new PaletteManagerDialog(
+  (title, defaultValue, onResult) => promptDialog.show(title, defaultValue, onResult),
+  (message, onChoice) => confirmDialog.show(message, onChoice)
+);
+
+function openPaletteManager(): void {
+  paletteManagerDialog.show(
+    () => ({ palettes: colorDialog.getPalettes(), activeId: colorDialog.getActivePaletteId() }),
+    {
+      setActive: (id) => colorDialog.setActivePaletteId(id),
+      add: (name) => colorDialog.addPalette(name),
+      remove: (id) => colorDialog.removePalette(id),
+      rename: (id, name) => colorDialog.renamePalette(id, name),
+      moveUp: (id) => colorDialog.movePalette(id, "up"),
+      moveDown: (id) => colorDialog.movePalette(id, "down")
+    }
+  );
+}
+
+/** 現在アクティブなパレットだけをファイルに書き出す(JSON、拡張子は.mkp)。 */
+function savePaletteFile(): void {
+  const palettes = colorDialog.getPalettes();
+  const activeId = colorDialog.getActivePaletteId();
+  const active = palettes.find((p) => p.id === activeId) ?? palettes[0];
+  if (!active) return;
+  downloadText(JSON.stringify({ name: active.name, swatches: active.swatches }), `${active.name}.mkp`);
+}
+
+const paletteFileInput = document.createElement("input");
+paletteFileInput.type = "file";
+paletteFileInput.accept = ".mkp,.json";
+paletteFileInput.style.display = "none";
+document.body.appendChild(paletteFileInput);
+paletteFileInput.addEventListener("change", async () => {
+  const file = paletteFileInput.files?.[0];
+  paletteFileInput.value = "";
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (typeof data?.name !== "string" || !Array.isArray(data.swatches)) {
+      throw new Error("パレットファイルの形式が正しくありません");
+    }
+    colorDialog.addImportedPalette(
+      data.name,
+      data.swatches.filter((s: unknown): s is string => typeof s === "string")
+    );
+  } catch (err) {
+    console.error(err);
+    alertDialog.show("パレットファイルの読み込みに失敗しました");
+  }
+});
+
+/** 読み込んだパレットは新規パレットとして追加・アクティブ化される(既存のパレットを上書きしない)。 */
+function loadPaletteFile(): void {
+  paletteFileInput.click();
+}
 
 /** CanvasSizeDialogの入力結果をDocumentへ適用する。ミニラフ解像度が変わらない場合は完成サイズ/
  * dpiだけをその場で書き換え(リサンプル不要)、変わる場合だけ新しいDocumentを作って返す。 */
@@ -752,7 +866,8 @@ async function buildProjectJson(): Promise<string> {
     bgColor,
     bgMode,
     brushSizes,
-    savedPalette: savedPaletteSwatches,
+    palettes: currentPalettes,
+    activePaletteId: currentActivePaletteId,
     tempPalette: tempPaletteSwatches,
     activeToolId: activeId
   });
@@ -901,9 +1016,14 @@ async function loadProjectFromJson(text: string, clearCache = true): Promise<voi
       if (tool && hasSize(tool)) tool.size = size;
     }
 
-    savedPaletteSwatches = restored.data.savedPalette;
+    // 複数パレット導入前の旧保存ファイルは`palettes`を持たず、代わりに名前無しの`savedPalette`
+    // (単一の配列)しか無いので、1つのパレットとして読み替える。
+    const loadedPalettes: NamedPalette[] = restored.data.palettes ?? [{ id: "legacy", name: "パレット1", swatches: restored.data.savedPalette ?? [] }];
+    const loadedActivePaletteId = restored.data.activePaletteId ?? loadedPalettes[0].id;
+    colorDialog.setPalettes(loadedPalettes, loadedActivePaletteId);
+    currentPalettes = colorDialog.getPalettes();
+    currentActivePaletteId = colorDialog.getActivePaletteId();
     tempPaletteSwatches = restored.data.tempPalette;
-    colorDialog.setCustomSwatches(savedPaletteSwatches);
     colorDialog.setTempSwatches(tempPaletteSwatches);
 
     if (restored.data.activeToolId in tools) {
@@ -1374,6 +1494,12 @@ addMenuButton("選択範囲", (container, m) => {
   m.addItem(container, "全選択", () => selectAllActive(), "Ctrl+A");
 });
 
+addMenuButton("パレット", (container, m) => {
+  m.addItem(container, "パレットの編集", () => openPaletteManager());
+  m.addItem(container, "パレットの保存", () => savePaletteFile());
+  m.addItem(container, "パレットの読み込み", () => loadPaletteFile());
+});
+
 addMenuButton("ヘルプ", (container, m) => {
   m.addItem(container, "ヘルプ", () => void helpDialog.show());
   m.addItem(container, "このアプリについて", () => aboutDialog.show());
@@ -1799,6 +1925,106 @@ gradientPairSelect.style.display = "none";
 // toolbarConditionalGroupにまとめる(幅が足りない時はこのグループだけ2行目へ折り返る)。
 toolbarConditionalGroup.appendChild(gradientPairSelect);
 
+// 図形(直線/四角/丸/三角/星)も選択範囲系と同じく1つのグループボタン+プルダウンにまとめる。
+let activeShapeVariant: ShapeKind = tools.shape.shape;
+
+const shapeGroupBtn = document.createElement("button");
+shapeGroupBtn.className = "toolbar-icon-btn";
+
+function updateShapeGroupButton(): void {
+  shapeGroupBtn.innerHTML = SHAPE_ICONS[activeShapeVariant];
+  shapeGroupBtn.title = `${SHAPE_TITLES[activeShapeVariant]}(ダブルクリック/右クリックで切替)`;
+}
+updateShapeGroupButton();
+
+function openShapeDropdown(): void {
+  menu.toggle(shapeGroupBtn, (container, m) => {
+    for (const kind of SHAPE_KIND_ORDER) {
+      m.addItem(container, SHAPE_TITLES[kind], () => {
+        activeShapeVariant = kind;
+        tools.shape.shape = kind;
+        updateShapeGroupButton();
+        selectTool("shape");
+      });
+    }
+  });
+}
+
+shapeGroupBtn.addEventListener("click", () => {
+  if (activeId === "shape") openShapeDropdown();
+  else selectTool("shape");
+});
+shapeGroupBtn.addEventListener("dblclick", () => openShapeDropdown());
+shapeGroupBtn.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  openShapeDropdown();
+});
+toolbarPrimaryGroup.appendChild(shapeGroupBtn);
+
+// 縦横比固定(四角/丸/三角/星のみ意味がある)・角度調節(全図形共通、直線はドラッグ方向のスナップ、
+// 他は大きさ確定後の2段階目の回転ドラッグのスナップに使われる)の設定。
+const shapeOptionsGroup = document.createElement("div");
+shapeOptionsGroup.className = "shape-options-group";
+
+const shapeAspectLabel = document.createElement("label");
+const shapeAspectCheckbox = document.createElement("input");
+shapeAspectCheckbox.type = "checkbox";
+shapeAspectCheckbox.addEventListener("change", () => {
+  tools.shape.lockAspect = shapeAspectCheckbox.checked;
+});
+shapeAspectLabel.appendChild(shapeAspectCheckbox);
+shapeAspectLabel.appendChild(document.createTextNode("縦横比固定"));
+
+const shapeAngleSelect = document.createElement("select");
+const shapeAngleOptions: { value: AngleMode; label: string }[] = [
+  { value: "none", label: "角度調節なし" },
+  { value: "snap45", label: "45度ごと" },
+  { value: "snapCustom", label: "指定角度ごと" },
+  { value: "free", label: "無段階" }
+];
+for (const opt of shapeAngleOptions) {
+  const el = document.createElement("option");
+  el.value = opt.value;
+  el.textContent = opt.label;
+  shapeAngleSelect.appendChild(el);
+}
+shapeAngleSelect.addEventListener("change", () => {
+  tools.shape.angleMode = shapeAngleSelect.value as AngleMode;
+  updateShapeAngleStepVisibility();
+});
+
+const shapeAngleStepInput = document.createElement("input");
+shapeAngleStepInput.type = "number";
+shapeAngleStepInput.min = "1";
+shapeAngleStepInput.max = "180";
+shapeAngleStepInput.title = "スナップ間隔(度)";
+shapeAngleStepInput.value = String(tools.shape.angleStepDegrees);
+shapeAngleStepInput.addEventListener("change", () => {
+  const v = Math.max(1, Math.min(180, Math.round(Number(shapeAngleStepInput.value)) || 15));
+  tools.shape.angleStepDegrees = v;
+  shapeAngleStepInput.value = String(v);
+});
+
+function updateShapeAngleStepVisibility(): void {
+  shapeAngleStepInput.style.display = shapeAngleSelect.value === "snapCustom" ? "" : "none";
+}
+updateShapeAngleStepVisibility();
+
+/** ツール切替・図形の種類切替のたびに、チェックボックス/セレクトの表示をtools.shapeの実際の
+ * 値に揃える(直線では縦横比固定のチェックボックス自体を隠す — 1本の線に「幅と高さ」は無い)。 */
+function updateShapeOptionsUI(): void {
+  shapeAspectLabel.style.display = tools.shape.shape === "line" ? "none" : "";
+  shapeAspectCheckbox.checked = tools.shape.lockAspect;
+  shapeAngleSelect.value = tools.shape.angleMode;
+  updateShapeAngleStepVisibility();
+}
+
+shapeOptionsGroup.appendChild(shapeAspectLabel);
+shapeOptionsGroup.appendChild(shapeAngleSelect);
+shapeOptionsGroup.appendChild(shapeAngleStepInput);
+shapeOptionsGroup.style.display = "none";
+toolbarConditionalGroup.appendChild(shapeOptionsGroup);
+
 const penSizeGroup = document.createElement("div");
 penSizeGroup.className = "pen-size-group";
 const sizeSlider = document.createElement("input");
@@ -1822,7 +2048,8 @@ toolbarConditionalGroup.appendChild(penSizeGroup);
 
 function updatePenSizeUI(): void {
   const tool = tools[activeId];
-  const sizable = hasSize(tool);
+  // 図形ツールの「太さ」は直線専用(四角/丸/三角/星は塗りの図形でサイズの概念が無い)。
+  const sizable = hasSize(tool) && !(activeId === "shape" && tools.shape.shape !== "line");
   // ブラシサイズを持たないツール(選択範囲・グラデーション等)ではスライダー/ボタンごと隠す。
   penSizeGroup.style.display = sizable ? "" : "none";
   if (sizable) {
@@ -1898,6 +2125,9 @@ function refreshColorSwatches(): void {
 }
 
 function selectTool(id: ToolId): void {
+  // 図形ツールのインスタンスは全バリエーションで共有されているため、「サイズ確定済み・
+  // 角度ドラッグ待ち」の状態を他のツールへ切り替えた後まで持ち越させない。
+  if (activeId === "shape" && id !== "shape") tools.shape.reset();
   activeId = id;
   grid.setToolForAll(tools[id]);
   // 選択範囲系の4ツールは1つのボタン(selectionGroupBtn)を共有しているため、個別キーの
@@ -1909,6 +2139,9 @@ function selectTool(id: ToolId): void {
   selectionGroupBtn.classList.toggle("active", selectionToolIds.includes(id));
   gradientBtn.classList.toggle("active", id === "gradient");
   gradientPairSelect.style.display = id === "gradient" ? "" : "none";
+  shapeGroupBtn.classList.toggle("active", id === "shape");
+  shapeOptionsGroup.style.display = id === "shape" ? "" : "none";
+  if (id === "shape") updateShapeOptionsUI();
   updatePenSizeUI();
 }
 

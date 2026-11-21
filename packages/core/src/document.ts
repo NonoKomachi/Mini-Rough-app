@@ -255,6 +255,15 @@ export class Document {
     return this.findLayer(this.activeLayerId);
   }
 
+  /** The sibling that sits directly below `id` in the same parent's children (layers array is
+   * bottom-most-first, so that's the element at `index - 1`). undefined when `id` doesn't exist
+   * or is already the bottom-most node in its parent. */
+  nodeBelow(id: string): LayerNode | undefined {
+    const container = this.findContainer(id);
+    if (!container || container.index === 0) return undefined;
+    return container.array[container.index - 1];
+  }
+
   /** Deep-clones a layer/folder (fresh id, "〜のコピー" name) and inserts it directly above the
    * original in the same parent; activates the clone if it's a layer. Returns the clone, or
    * undefined if `id` doesn't exist. */

@@ -1,6 +1,20 @@
 import { RGBA } from "@mini-rough/core";
 import { hsvToRgb, rgbToHex, rgbToHsv, checkeredBackgroundImage } from "./color-utils";
 
+export interface NamedPalette {
+  id: string;
+  name: string;
+  swatches: string[];
+}
+
+function createPaletteId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function createEmptyPalette(name: string): NamedPalette {
+  return { id: createPaletteId(), name, swatches: [] };
+}
+
 const SIZE = 220;
 const CENTER = SIZE / 2;
 const R_OUTER = SIZE / 2 - 3;
@@ -89,15 +103,18 @@ export class ColorPicker {
   private readonly gRow: ValueRow;
   private readonly bRow: ValueRow;
   private readonly paletteGrid: HTMLDivElement;
+  private readonly paletteSelect: HTMLSelectElement;
   private readonly tempPaletteGrid: HTMLDivElement;
-  /** 永続(保存用)パレット — プロジェクトファイルに保存・復元される。 */
-  private customSwatches: string[] = [];
+  /** 永続(保存用)パレット、複数・名前付き — プロジェクトファイルに保存・復元される。
+   * プルダウン(paletteSelect)で切り替える、現在表示中のものがactivePaletteId。 */
+  private palettes: NamedPalette[] = [createEmptyPalette("パレット1")];
+  private activePaletteId: string = this.palettes[0].id;
   /** 一時パレット — 現在の編集セッションのみ有効(新規作成/「開く」でリセット)。プロジェクト
    * ファイルには保存されるが、新規作成時には空に戻る。 */
   private tempSwatches: string[] = [];
-  /** 保存用パレットが変化した(追加/編集/削除)たびに通知 — main.ts側がプロジェクト保存用に
-   * 最新状態を保持するために使う。 */
-  onCustomSwatchesChange: ((swatches: string[]) => void) | null = null;
+  /** 保存用パレットのリスト・切替・内容のいずれかが変化した(追加/削除/改名/並べ替え/編集/
+   * 切替)たびに通知 — main.ts側がプロジェクト保存用に最新状態を保持するために使う。 */
+  onPalettesChange: ((palettes: NamedPalette[], activePaletteId: string) => void) | null = null;
   /** 一時パレットが変化した時の通知。 */
   onTempSwatchesChange: ((swatches: string[]) => void) | null = null;
   private dragMode: "ring" | "square" | null = null;
@@ -170,6 +187,17 @@ export class ColorPicker {
     paletteLabel.className = "palette-section-label";
     paletteLabel.textContent = "パレット";
     palettePanel.appendChild(paletteLabel);
+
+    // 複数の名前付きパレットをここで切り替える(一覧の追加/削除/改名/並べ替えは「パレット」
+    // メニューの「パレットの編集」ダイアログで行う — このプルダウンは切替専用)。
+    this.paletteSelect = document.createElement("select");
+    this.paletteSelect.className = "palette-select";
+    this.paletteSelect.addEventListener("change", () => {
+      this.activePaletteId = this.paletteSelect.value;
+      this.renderPalette();
+      this.notifyPalettesChange();
+    });
+    palettePanel.appendChild(this.paletteSelect);
 
     this.paletteGrid = document.createElement("div");
     this.paletteGrid.className = "palette-grid";
@@ -385,7 +413,24 @@ export class ColorPicker {
     this.updateColor();
   }
 
+  private activePalette(): NamedPalette {
+    return this.palettes.find((p) => p.id === this.activePaletteId) ?? this.palettes[0];
+  }
+
+  private notifyPalettesChange(): void {
+    this.onPalettesChange?.(this.palettes, this.activePaletteId);
+  }
+
   private renderPalette(): void {
+    this.paletteSelect.innerHTML = "";
+    for (const palette of this.palettes) {
+      const opt = document.createElement("option");
+      opt.value = palette.id;
+      opt.textContent = palette.name;
+      this.paletteSelect.appendChild(opt);
+    }
+    this.paletteSelect.value = this.activePaletteId;
+
     this.paletteGrid.innerHTML = "";
     for (const hex of PRESET_PALETTE) {
       const btn = document.createElement("button");
@@ -398,9 +443,10 @@ export class ColorPicker {
       });
       this.paletteGrid.appendChild(btn);
     }
-    this.appendEditableSwatches(this.paletteGrid, this.customSwatches, "現在の色をパレットに追加", () => {
+    const active = this.activePalette();
+    this.appendEditableSwatches(this.paletteGrid, active.swatches, "現在の色をパレットに追加", () => {
       this.renderPalette();
-      this.onCustomSwatchesChange?.(this.customSwatches);
+      this.notifyPalettesChange();
     });
   }
 
@@ -452,15 +498,82 @@ export class ColorPicker {
     grid.appendChild(addBtn);
   }
 
-  /** Current saved-palette contents, for persisting to a project file. */
-  getCustomSwatches(): string[] {
-    return [...this.customSwatches];
+  /** Current palette list, for persisting to a project file / showing in the palette manager. */
+  getPalettes(): NamedPalette[] {
+    return this.palettes.map((p) => ({ ...p, swatches: [...p.swatches] }));
   }
 
-  /** Replaces the saved palette (e.g. when restoring from a project file). */
-  setCustomSwatches(swatches: string[]): void {
-    this.customSwatches = [...swatches];
+  getActivePaletteId(): string {
+    return this.activePaletteId;
+  }
+
+  /** Replaces the whole palette list (e.g. when restoring from a project file). `palettes` must
+   * be non-empty — callers fall back to a single default palette otherwise. */
+  setPalettes(palettes: NamedPalette[], activePaletteId: string): void {
+    this.palettes = palettes.length > 0 ? palettes.map((p) => ({ ...p, swatches: [...p.swatches] })) : [createEmptyPalette("パレット1")];
+    this.activePaletteId = this.palettes.some((p) => p.id === activePaletteId) ? activePaletteId : this.palettes[0].id;
     this.renderPalette();
+  }
+
+  setActivePaletteId(id: string): void {
+    if (!this.palettes.some((p) => p.id === id)) return;
+    this.activePaletteId = id;
+    this.renderPalette();
+    this.notifyPalettesChange();
+  }
+
+  /** 新規パレットを追加してアクティブにする。 */
+  addPalette(name: string): void {
+    const palette = createEmptyPalette(name);
+    this.palettes.push(palette);
+    this.activePaletteId = palette.id;
+    this.renderPalette();
+    this.notifyPalettesChange();
+  }
+
+  /** 読み込んだパレットファイルの内容を新規パレットとして追加してアクティブにする。既存と同名
+   * なら「名前(2)」のように連番を付けて区別する。 */
+  addImportedPalette(name: string, swatches: string[]): void {
+    const existingNames = new Set(this.palettes.map((p) => p.name));
+    let uniqueName = name;
+    for (let i = 2; existingNames.has(uniqueName); i++) uniqueName = `${name}(${i})`;
+    const palette: NamedPalette = { id: createPaletteId(), name: uniqueName, swatches: [...swatches] };
+    this.palettes.push(palette);
+    this.activePaletteId = palette.id;
+    this.renderPalette();
+    this.notifyPalettesChange();
+  }
+
+  /** 最後の1つは削除できない(常に最低1つのパレットを保つ)。削除したのがアクティブだった場合は
+   * 隣(できれば1つ上、無ければ1つ下)をアクティブにする。 */
+  removePalette(id: string): void {
+    if (this.palettes.length <= 1) return;
+    const index = this.palettes.findIndex((p) => p.id === id);
+    if (index === -1) return;
+    this.palettes.splice(index, 1);
+    if (this.activePaletteId === id) {
+      this.activePaletteId = this.palettes[Math.min(index, this.palettes.length - 1)].id;
+    }
+    this.renderPalette();
+    this.notifyPalettesChange();
+  }
+
+  renamePalette(id: string, name: string): void {
+    const palette = this.palettes.find((p) => p.id === id);
+    if (!palette || !name.trim()) return;
+    palette.name = name.trim();
+    this.renderPalette();
+    this.notifyPalettesChange();
+  }
+
+  /** パレット一覧(プルダウンの並び順)内で1つ上/下に入れ替える。 */
+  movePalette(id: string, direction: "up" | "down"): void {
+    const index = this.palettes.findIndex((p) => p.id === id);
+    const target = direction === "up" ? index - 1 : index + 1;
+    if (index === -1 || target < 0 || target >= this.palettes.length) return;
+    [this.palettes[index], this.palettes[target]] = [this.palettes[target], this.palettes[index]];
+    this.renderPalette();
+    this.notifyPalettesChange();
   }
 
   /** Current temp-palette contents, for persisting to a project file. */

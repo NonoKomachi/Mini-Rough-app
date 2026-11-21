@@ -11,7 +11,7 @@ export interface StrokeTool {
 /** Tools that drag out a region against the whole document rather than painting into a layer —
  * selection tools (rect/ellipse/lasso/auto-select), the gradient tool, and the move tool. */
 export interface DragTool {
-  readonly kind: "selection" | "gradient" | "move";
+  readonly kind: "selection" | "gradient" | "move" | "shape";
   begin(doc: Document, x: number, y: number): void;
   drag(doc: Document, x: number, y: number): void;
   end(doc: Document): void;

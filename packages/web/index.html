@@ -445,6 +445,33 @@
         padding: 4px 6px;
         cursor: pointer;
       }
+      .shape-options-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .shape-options-group label {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: #eee;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .shape-options-group select,
+      .shape-options-group input[type="number"] {
+        background: #3a3a3a;
+        border: 1px solid #555;
+        border-radius: 4px;
+        color: #eee;
+        font-size: 12px;
+        padding: 4px 6px;
+        cursor: pointer;
+      }
+      .shape-options-group input[type="number"] {
+        width: 4em;
+        cursor: text;
+      }
       .color-swatch-group {
         display: flex;
         align-items: center;
@@ -1064,6 +1091,17 @@
         color: #ddd;
         margin-top: 4px;
       }
+      .palette-select {
+        background: #3a3a3a;
+        border: 1px solid #555;
+        border-radius: 4px;
+        color: #eee;
+        font-size: 12px;
+        padding: 4px 6px;
+        cursor: pointer;
+        width: 100%;
+        margin: 2px 0 4px;
+      }
       .palette-grid {
         display: grid;
         grid-template-columns: repeat(7, 18px);
@@ -1198,6 +1236,40 @@
       }
       .modal-box.help-dialog-box {
         width: 560px;
+      }
+
+      /* ---- パレット管理ダイアログ(パレットメニュー→パレットの編集) ---- */
+      .modal-box.palette-manager-box {
+        width: 420px;
+      }
+      .palette-manager-list {
+        max-height: 50vh;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .palette-manager-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 6px;
+        border: 1px solid #444;
+        border-radius: 4px;
+      }
+      .palette-manager-row.active {
+        background: #2d4a8a;
+        border-color: #4a7dff;
+      }
+      .palette-manager-name {
+        flex: 1;
+        text-align: left;
+        background: none;
+        border: none;
+        color: #eee;
+        font-size: 13px;
+        padding: 4px;
+        cursor: pointer;
       }
 
       /* ---- Load-size-choice dialog (読み込み/一括読み込み) ---- */

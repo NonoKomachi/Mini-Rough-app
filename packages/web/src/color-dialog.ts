@@ -1,5 +1,5 @@
 import { RGBA } from "@mini-rough/core";
-import { ColorPicker } from "./color-picker";
+import { ColorPicker, NamedPalette } from "./color-picker";
 
 export class ColorDialog {
   private readonly overlay: HTMLDivElement;
@@ -49,13 +49,41 @@ export class ColorDialog {
 
   /** Transparent pass-throughs to the single shared ColorPicker's palette state — used by
    * main.ts to persist/restore palettes with a project file and to reset the temp palette on
-   * 新規作成/開く. */
-  getCustomSwatches(): string[] {
-    return this.picker.getCustomSwatches();
+   * 新規作成/開く, and by PaletteManagerDialog for the「パレットの編集」management UI. */
+  getPalettes(): NamedPalette[] {
+    return this.picker.getPalettes();
   }
 
-  setCustomSwatches(swatches: string[]): void {
-    this.picker.setCustomSwatches(swatches);
+  getActivePaletteId(): string {
+    return this.picker.getActivePaletteId();
+  }
+
+  setPalettes(palettes: NamedPalette[], activePaletteId: string): void {
+    this.picker.setPalettes(palettes, activePaletteId);
+  }
+
+  setActivePaletteId(id: string): void {
+    this.picker.setActivePaletteId(id);
+  }
+
+  addPalette(name: string): void {
+    this.picker.addPalette(name);
+  }
+
+  addImportedPalette(name: string, swatches: string[]): void {
+    this.picker.addImportedPalette(name, swatches);
+  }
+
+  removePalette(id: string): void {
+    this.picker.removePalette(id);
+  }
+
+  renamePalette(id: string, name: string): void {
+    this.picker.renamePalette(id, name);
+  }
+
+  movePalette(id: string, direction: "up" | "down"): void {
+    this.picker.movePalette(id, direction);
   }
 
   getTempSwatches(): string[] {
@@ -66,8 +94,11 @@ export class ColorDialog {
     this.picker.setTempSwatches(swatches);
   }
 
-  onPaletteChange(handler: (kind: "custom" | "temp", swatches: string[]) => void): void {
-    this.picker.onCustomSwatchesChange = (swatches) => handler("custom", swatches);
-    this.picker.onTempSwatchesChange = (swatches) => handler("temp", swatches);
+  onPalettesChange(handler: (palettes: NamedPalette[], activePaletteId: string) => void): void {
+    this.picker.onPalettesChange = handler;
+  }
+
+  onTempSwatchesChange(handler: (swatches: string[]) => void): void {
+    this.picker.onTempSwatchesChange = handler;
   }
 }

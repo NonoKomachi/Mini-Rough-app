@@ -111,3 +111,26 @@ function composeNodes(nodes: LayerNode[], width: number, height: number): Uint8C
 export function composeDocument(doc: Document): Uint8ClampedArray {
   return composeNodes(doc.layers, doc.width, doc.height);
 }
+
+/**
+ * CLIP STUDIOの「下のレイヤーと結合」: `id`のレイヤーを、同じ親の中で直下にあるレイヤーへ統合する。
+ * 統合結果は、この2枚だけを(他の階層と同じ合成ロジック=composeNodesで)重ねた見た目をそのまま
+ * 焼き込んだもの — 上のレイヤー(`id`)の不透明度・合成モード・マスク・クリッピングは全てこの時点で
+ * 焼き込まれて消え、生き残る下のレイヤーの不透明度は100%・合成モードは通常・マスクは無しにリセット
+ * される(すでに結果に反映済みのため)。下のレイヤー自身の「下のレイヤーでクリッピング」設定は、
+ * さらにその下(統合後も変わらず存在する)を参照し続けるので、そのままにする。
+ * `id`がレイヤーでない、または直下がレイヤーでない(フォルダー or 何もない)場合はfalseを返し何もしない。
+ */
+export function mergeLayerDown(doc: Document, id: string): boolean {
+  const top = doc.findLayer(id);
+  const below = top ? doc.nodeBelow(id) : undefined;
+  if (!top || !below || below.kind !== "layer") return false;
+  const bottom = below;
+  bottom.pixels = composeNodes([bottom, top], doc.width, doc.height);
+  bottom.opacity = 1;
+  bottom.blendMode = BLEND_NORMAL;
+  bottom.mask = null;
+  doc.deleteNode(id);
+  doc.activeLayerId = bottom.id;
+  return true;
+}

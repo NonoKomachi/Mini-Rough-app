@@ -2,7 +2,7 @@ export { Document, RasterLayer, LayerFolder } from "./document";
 export type { LayerNode } from "./document";
 export { BLEND_NORMAL, BLEND_MODE_OPTIONS, blendModeLabel } from "./blend-modes";
 export type { BlendMode } from "./blend-modes";
-export { composeDocument } from "./rendering";
+export { composeDocument, mergeLayerDown } from "./rendering";
 export type { StrokeTool, DragTool, PickTool, RGBA } from "./tools/tool";
 export { isDragTool, isPickTool } from "./tools/tool";
 export { EyedropperTool } from "./tools/eyedropper";
@@ -19,6 +19,8 @@ export { AutoSelectTool } from "./tools/auto-select";
 export { GradientTool } from "./tools/gradient";
 export type { GradientPair } from "./tools/gradient";
 export { MoveTool } from "./tools/move-tool";
+export { ShapeTool } from "./tools/shape";
+export type { ShapeKind, AngleMode } from "./tools/shape";
 export {
   extractRegion,
   clearRegionFromLayer,

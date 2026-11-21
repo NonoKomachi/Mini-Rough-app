@@ -47,6 +47,12 @@ interface ProjectFileVariant {
   otherModeLayers?: ProjectFileNode[];
 }
 
+export interface ProjectFilePalette {
+  id: string;
+  name: string;
+  swatches: string[];
+}
+
 export interface ProjectFileData {
   formatVersion: number;
   mainColor: RGBA;
@@ -54,7 +60,13 @@ export interface ProjectFileData {
   bgColor: RGBA;
   bgMode: "color" | "transparent";
   brushSizes: Record<string, number>;
-  savedPalette: string[];
+  /** 複数の名前付きパレット。旧バージョンの保存ファイルには無く、代わりに`savedPalette`
+   * (名前無しの単一パレット、下方互換のため残す)しか無いので、読み込み時はcaller(main.ts)が
+   * `savedPalette`を1つのパレットとして読み替える。 */
+  palettes?: ProjectFilePalette[];
+  activePaletteId?: string;
+  /** 旧フォーマット(複数パレット導入前)専用 — 新しい保存では書き込まない。 */
+  savedPalette?: string[];
   tempPalette: string[];
   activeVariantIndex: number;
   activeToolId: string;
@@ -138,7 +150,8 @@ export interface ProjectUiState {
   bgColor: RGBA;
   bgMode: "color" | "transparent";
   brushSizes: Record<string, number>;
-  savedPalette: string[];
+  palettes: ProjectFilePalette[];
+  activePaletteId: string;
   tempPalette: string[];
   activeToolId: string;
 }
@@ -157,7 +170,8 @@ export async function serializeProject(grid: VariantGrid, ui: ProjectUiState): P
     bgColor: ui.bgColor,
     bgMode: ui.bgMode,
     brushSizes: ui.brushSizes,
-    savedPalette: ui.savedPalette,
+    palettes: ui.palettes,
+    activePaletteId: ui.activePaletteId,
     tempPalette: ui.tempPalette,
     activeVariantIndex: activeIndex,
     activeToolId: ui.activeToolId,

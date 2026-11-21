@@ -1,8 +1,12 @@
 import { RasterLayer } from "../document";
 import { RGBA } from "./tool";
+import { SelectionMask } from "../selection";
 
-export function setPixel(layer: RasterLayer, x: number, y: number, color: RGBA): void {
+/** `mask` (when given) restricts the write to the current selection, same convention GradientTool/
+ * MoveTool already follow for DragTool-family operations. */
+export function setPixel(layer: RasterLayer, x: number, y: number, color: RGBA, mask?: SelectionMask | null): void {
   if (x < 0 || y < 0 || x >= layer.width || y >= layer.height) return;
+  if (mask && !mask[y * layer.width + x]) return;
   const idx = (y * layer.width + x) * 4;
   layer.pixels[idx] = color[0];
   layer.pixels[idx + 1] = color[1];
@@ -13,6 +17,23 @@ export function setPixel(layer: RasterLayer, x: number, y: number, color: RGBA):
 export function getPixel(layer: RasterLayer, x: number, y: number): RGBA {
   const idx = (y * layer.width + x) * 4;
   return [layer.pixels[idx], layer.pixels[idx + 1], layer.pixels[idx + 2], layer.pixels[idx + 3]];
+}
+
+/** Hard-edged filled circle (same stamp PencilTool uses internally) — shared here so the shape
+ * tool's line can reuse it for its stroke thickness. */
+export function stampFilledCircle(layer: RasterLayer, cx: number, cy: number, radius: number, color: RGBA, mask?: SelectionMask | null): void {
+  const r2 = radius * radius;
+  const minX = Math.floor(cx - radius);
+  const maxX = Math.ceil(cx + radius);
+  const minY = Math.floor(cy - radius);
+  const maxY = Math.ceil(cy + radius);
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      const dx = x + 0.5 - cx;
+      const dy = y + 0.5 - cy;
+      if (dx * dx + dy * dy <= r2) setPixel(layer, x, y, color, mask);
+    }
+  }
 }
 
 /** Integer-pixel Bresenham walk from (x0,y0) to (x1,y1), inclusive of both ends. Inputs are
