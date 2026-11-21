@@ -35,6 +35,10 @@ export class AlertDialog {
   show(message: string, onClose: () => void = () => {}): void {
     this.messageEl.textContent = message;
     this.onClose = onClose;
+    // 既に開いている別のダイアログ(設定画面など)より手前に出す — 全ての.modal-overlayは
+    // 同じz-indexなので、DOM上で最後の子である方が上に重なる。show()のたびに自分自身を
+    // 末尾へ移動させることで、どのダイアログの上からでも必ず見えるようにする。
+    document.body.appendChild(this.overlay);
     this.overlay.classList.add("visible");
   }
 

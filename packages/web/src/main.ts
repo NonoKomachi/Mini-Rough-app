@@ -40,7 +40,7 @@ import { CanvasSizeDialog, CanvasSizeResult } from "./canvas-size-dialog";
 import { SaveDialog, SaveFormat } from "./save-dialog";
 import { BatchExportDialog } from "./batch-export-dialog";
 import { ColorDialog } from "./color-dialog";
-import { NamedPalette } from "./color-picker";
+import { NamedPalette, DEFAULT_PALETTE_ID } from "./color-picker";
 import { PaletteManagerDialog } from "./palette-manager-dialog";
 import { SizePresetDialog } from "./size-preset-dialog";
 import { AboutDialog } from "./about-dialog";
@@ -1123,7 +1123,9 @@ async function loadProjectFromJson(text: string, clearCache = true): Promise<voi
 
     // 複数パレット導入前の旧保存ファイルは`palettes`を持たず、代わりに名前無しの`savedPalette`
     // (単一の配列)しか無いので、1つのパレットとして読み替える。
-    const loadedPalettes: NamedPalette[] = restored.data.palettes ?? [{ id: "legacy", name: "パレット1", swatches: restored.data.savedPalette ?? [] }];
+    const loadedPalettes: NamedPalette[] = restored.data.palettes ?? [
+      { id: DEFAULT_PALETTE_ID, name: "パレット1", swatches: restored.data.savedPalette ?? [] }
+    ];
     const loadedActivePaletteId = restored.data.activePaletteId ?? loadedPalettes[0].id;
     colorDialog.setPalettes(loadedPalettes, loadedActivePaletteId);
     currentPalettes = colorDialog.getPalettes();

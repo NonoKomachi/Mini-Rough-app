@@ -71,6 +71,8 @@ export class PaletteManagerDialog {
     this.getState = getState;
     this.actions = actions;
     this.render();
+    // 全ての.modal-overlayは同じz-indexなので、DOM上で最後の子である方が上に重なる。
+    document.body.appendChild(this.overlay);
     this.overlay.classList.add("visible");
   }
 

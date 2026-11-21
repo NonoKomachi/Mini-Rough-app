@@ -11,6 +11,12 @@ function createPaletteId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 最初から存在する唯一の「デフォルトパレット」のid固定値。この値のパレットだけ、下の
+ * PRESET_PALETTE(12色の既定スウォッチ)を併せて表示する。新規追加(addPalette)・読み込み
+ * (addImportedPalette)したパレットはこのidを持たないため、ユーザー要望通り完全に空の
+ * 状態から始まる。 */
+export const DEFAULT_PALETTE_ID = "default";
+
 export function createEmptyPalette(name: string): NamedPalette {
   return { id: createPaletteId(), name, swatches: [] };
 }
@@ -107,7 +113,7 @@ export class ColorPicker {
   private readonly tempPaletteGrid: HTMLDivElement;
   /** 永続(保存用)パレット、複数・名前付き — プロジェクトファイルに保存・復元される。
    * プルダウン(paletteSelect)で切り替える、現在表示中のものがactivePaletteId。 */
-  private palettes: NamedPalette[] = [createEmptyPalette("パレット1")];
+  private palettes: NamedPalette[] = [{ id: DEFAULT_PALETTE_ID, name: "パレット1", swatches: [] }];
   private activePaletteId: string = this.palettes[0].id;
   /** 一時パレット — 現在の編集セッションのみ有効(新規作成/「開く」でリセット)。プロジェクト
    * ファイルには保存されるが、新規作成時には空に戻る。 */
@@ -432,16 +438,20 @@ export class ColorPicker {
     this.paletteSelect.value = this.activePaletteId;
 
     this.paletteGrid.innerHTML = "";
-    for (const hex of PRESET_PALETTE) {
-      const btn = document.createElement("button");
-      btn.className = "palette-swatch";
-      btn.style.background = hex;
-      btn.title = hex;
-      btn.addEventListener("click", () => {
-        const [r, g, b] = hexToRgb(hex);
-        this.setColor([r, g, b, this.alpha]);
-      });
-      this.paletteGrid.appendChild(btn);
+    // 既定の12色プリセットは、最初から存在する「デフォルトパレット」でだけ表示する —
+    // 新規追加/読み込みしたパレットは完全に空の状態から始めてほしい、というユーザー要望。
+    if (this.activePaletteId === DEFAULT_PALETTE_ID) {
+      for (const hex of PRESET_PALETTE) {
+        const btn = document.createElement("button");
+        btn.className = "palette-swatch";
+        btn.style.background = hex;
+        btn.title = hex;
+        btn.addEventListener("click", () => {
+          const [r, g, b] = hexToRgb(hex);
+          this.setColor([r, g, b, this.alpha]);
+        });
+        this.paletteGrid.appendChild(btn);
+      }
     }
     const active = this.activePalette();
     this.appendEditableSwatches(this.paletteGrid, active.swatches, "現在の色をパレットに追加", () => {
@@ -510,7 +520,8 @@ export class ColorPicker {
   /** Replaces the whole palette list (e.g. when restoring from a project file). `palettes` must
    * be non-empty — callers fall back to a single default palette otherwise. */
   setPalettes(palettes: NamedPalette[], activePaletteId: string): void {
-    this.palettes = palettes.length > 0 ? palettes.map((p) => ({ ...p, swatches: [...p.swatches] })) : [createEmptyPalette("パレット1")];
+    this.palettes =
+      palettes.length > 0 ? palettes.map((p) => ({ ...p, swatches: [...p.swatches] })) : [{ id: DEFAULT_PALETTE_ID, name: "パレット1", swatches: [] }];
     this.activePaletteId = this.palettes.some((p) => p.id === activePaletteId) ? activePaletteId : this.palettes[0].id;
     this.renderPalette();
   }

@@ -209,7 +209,7 @@ async function fetchUserEmail(token: string): Promise<string> {
   }
 }
 
-/** サイレント更新(requestToken(""))の実行中リクエスト — google.accounts.oauth2のトークン
+/** サイレント更新(requestToken("none"))の実行中リクエスト — google.accounts.oauth2のトークン
  * クライアントはcallbackを1個しか持てないため、並行して複数回呼ぶと先に待っていた側の
  * callbackを後発の呼び出しが上書きしてしまい、先に待っていたPromiseが永遠に解決しなくなる
  * (起動時にtryAutoRestoreOnStartupとパレット/設定の同期が同時にトークンを要求しうるため、
@@ -223,7 +223,11 @@ async function ensureFreshToken(): Promise<string | null> {
   if (accessToken && Date.now() < tokenExpiresAt) return accessToken;
   if (pendingSilentRefresh) return pendingSilentRefresh;
   pendingSilentRefresh = (async () => {
-    const result = await requestToken("");
+    // prompt:""(空文字)はGoogle側の判断でUIを出すことがある(実際、ページを開くたびに
+    // ログイン画面が毎回表示される不具合の原因だった)。prompt:"none"は「UIを一切出さず、
+    // 必要ならそのまま失敗する」ことをGoogleに明示的に要求する値 — 無言更新が成功しなければ
+    // needsReauthになり設定画面に「再ログイン」ボタンが出るだけで、ポップアップは出さない。
+    const result = await requestToken("none");
     if (!result) {
       needsReauth = true;
       notify();

@@ -51,6 +51,9 @@ export class ConfirmDialog {
     this.messageEl.textContent = message;
     this.confirmBtn.textContent = options?.confirmLabel ?? "OK";
     this.onChoice = onChoice;
+    // 既に開いている別のダイアログ(パレット管理ダイアログ等)より手前に出す — 全ての
+    // .modal-overlayは同じz-indexなので、DOM上で最後の子である方が上に重なる。
+    document.body.appendChild(this.overlay);
     this.overlay.classList.add("visible");
   }
 

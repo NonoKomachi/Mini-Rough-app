@@ -48,6 +48,11 @@ export class PromptDialog {
     this.titleEl.textContent = title;
     this.inputEl.value = defaultValue;
     this.onResult = onResult;
+    // 既に開いている別のダイアログ(パレット管理ダイアログ等)より手前に出す — 全ての
+    // .modal-overlayは同じz-indexなので、DOM上で最後の子である方が上に重なる。これが無いと、
+    // パレット管理ダイアログの「+ 新規パレット」から開いた時にこのダイアログが背後に隠れて
+    // 見えなくなっていた。
+    document.body.appendChild(this.overlay);
     this.overlay.classList.add("visible");
     this.inputEl.focus();
     this.inputEl.select();
