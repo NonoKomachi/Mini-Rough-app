@@ -208,7 +208,9 @@ export class SettingsDialog {
     }
     this.driveConnectBtn.style.display = state.connected ? "none" : "";
     this.driveReauthorizeBtn.style.display = state.connected && state.needsReauth ? "" : "none";
-    this.driveChangeFolderBtn.style.display = state.connected ? "" : "none";
+    // フォルダ変更にはその場で有効なトークンが要る(Pickerを開くため) — 再ログインが
+    // 必要な間は押しても無言で失敗するだけになるので、先に「再ログイン」を済ませてもらう。
+    this.driveChangeFolderBtn.style.display = state.connected && !state.needsReauth ? "" : "none";
     this.driveDisconnectBtn.style.display = state.connected ? "" : "none";
   }
 

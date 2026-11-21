@@ -8,15 +8,19 @@
  *
  * ログイン情報(メールアドレス)とフォルダ(id/name)はlocalStorageにキャッシュし、ブラウザを
  * 閉じても覚えている。アクセストークン自体は(有効期限が短く、漏れても影響が限定的な性質のため)
- * メモリ上にのみ保持し、再読み込みのたびにGoogle側へ無言のトークン再取得(サイレント更新)を試みる
- * — それに失敗した場合だけ「再ログインが必要」状態になる(第三者Cookieをブロックするブラウザ等)。
+ * メモリ上にのみ保持し、ページの再読み込みや約1時間での失効のたびに失われる。GISの
+ * トークンクライアントは`prompt:"none"`(無言更新)であっても実際には一瞬ポップアップウィンドウを
+ * 開いて閉じる挙動になるため、自動では一切トークンの再取得を試みない(ユーザー指摘:ページを
+ * 開くたびにポップアップがチラつく不具合になっていた) — 代わりに「再ログインが必要」状態に
+ * なるだけで、ユーザーが設定画面の「再ログイン」ボタンを押した時だけ実際にポップアップが開く。
  */
 
 export interface DriveAccountState {
   /** アカウント+フォルダの組がキャッシュされているか(=連携済みとして表示するか)。有効な
    * アクセストークンを今この瞬間持っているかどうかとは別 — トークンは`needsReauth`で示す。 */
   connected: boolean;
-  /** サイレント更新に失敗した状態 — 再ログインボタンを出す合図。 */
+  /** アクセストークンが無い/失効した状態 — 設定画面に「再ログイン」ボタンを出す合図
+   * (自動では再取得しない、押した時だけポップアップが開く)。 */
   needsReauth: boolean;
   email: string | null;
   folderId: string | null;
@@ -209,36 +213,21 @@ async function fetchUserEmail(token: string): Promise<string> {
   }
 }
 
-/** サイレント更新(requestToken("none"))の実行中リクエスト — google.accounts.oauth2のトークン
- * クライアントはcallbackを1個しか持てないため、並行して複数回呼ぶと先に待っていた側の
- * callbackを後発の呼び出しが上書きしてしまい、先に待っていたPromiseが永遠に解決しなくなる
- * (起動時にtryAutoRestoreOnStartupとパレット/設定の同期が同時にトークンを要求しうるため、
- * 実際に起こりうる)。進行中なら同じPromiseを共有させて直列化する。 */
-let pendingSilentRefresh: Promise<string | null> | null = null;
-
-/** 有効なアクセストークンを返す(必要ならサイレント更新する)。取得できなければ
- * `needsReauth`を立てて通知し、nullを返す。 */
+/** 有効なアクセストークンを返す。期限切れ/未取得の場合に自動でGoogleへ問い合わせることは
+ * **しない** — `prompt:"none"`(無言更新)であってもGISの実装上は実際にポップアップウィンドウを
+ * 一瞬開いて閉じる挙動になり、ページを開くたびに/約1時間のトークン失効のたびにポップアップが
+ * チラついて見えてしまっていた(ユーザー指摘、Googleのサイレント更新は真に無音のiframe方式では
+ * なくポップアップ方式のため完全には回避できない)。そのため自動更新は諦め、`needsReauth`を
+ * 立てて設定画面に「再ログイン」ボタンを出すだけに留める — 実際にポップアップが開くのは、
+ * ユーザー自身がそのボタンを押した時(reauthorizeDrive、prompt:"consent")だけにする。 */
 async function ensureFreshToken(): Promise<string | null> {
   if (!stored) return null;
   if (accessToken && Date.now() < tokenExpiresAt) return accessToken;
-  if (pendingSilentRefresh) return pendingSilentRefresh;
-  pendingSilentRefresh = (async () => {
-    // prompt:""(空文字)はGoogle側の判断でUIを出すことがある(実際、ページを開くたびに
-    // ログイン画面が毎回表示される不具合の原因だった)。prompt:"none"は「UIを一切出さず、
-    // 必要ならそのまま失敗する」ことをGoogleに明示的に要求する値 — 無言更新が成功しなければ
-    // needsReauthになり設定画面に「再ログイン」ボタンが出るだけで、ポップアップは出さない。
-    const result = await requestToken("none");
-    if (!result) {
-      needsReauth = true;
-      notify();
-      return null;
-    }
-    needsReauth = false;
-    return result.accessToken;
-  })().finally(() => {
-    pendingSilentRefresh = null;
-  });
-  return pendingSilentRefresh;
+  if (!needsReauth) {
+    needsReauth = true;
+    notify();
+  }
+  return null;
 }
 
 async function findOrCreateAppFolder(): Promise<{ id: string; name: string } | null> {
@@ -304,9 +293,9 @@ export function disconnectDrive(): void {
   notify();
 }
 
-/** 起動時、ページを開くたびにこれを呼ぶ — キャッシュされたアカウントがあれば無言でトークンの
- * サイレント更新を試みる(ユーザー操作無しでも自動同期が働くように)。失敗してもUIに
- * needsReauthとして反映されるだけで、ここでは例外を投げない。 */
+/** 起動時、ページを開くたびにこれを呼ぶ — キャッシュされたアカウントがあれば(ポップアップを
+ * 一切開かずに)現在の状態を確認し、必要ならneedsReauthを設定画面に反映する。実際のトークン
+ * 取得(ポップアップが開く)は、ユーザーが「再ログイン」を押した時だけ行われる。 */
 export async function trySilentReconnect(): Promise<void> {
   if (!stored) return;
   await ensureFreshToken();
