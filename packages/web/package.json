@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@mini-rough/core": "*",
-    "@mini-rough/clip-io": "*"
+    "@mini-rough/clip-io": "*",
+    "firebase": "^11.0.0"
   },
   "devDependencies": {
     "vite": "^5.4.0"

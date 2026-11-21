@@ -1,11 +1,9 @@
 import { AppSettings } from "./app-settings";
-import { DriveAccountState } from "./google-drive";
+import { SyncState } from "./firebase-sync";
 
-export interface DriveActions {
-  connect(): void;
-  disconnect(): void;
-  changeFolder(): void;
-  reauthorize(): void;
+export interface SyncActions {
+  signIn(): void;
+  signOut(): void;
 }
 
 /** メニューバーの「設定」から開く環境設定ダイアログ。.mrkの中身ではなくブラウザ単位の好みを
@@ -22,20 +20,18 @@ export class SettingsDialog {
   private readonly sizePressureSensitivityInput: HTMLInputElement;
   private readonly opacityPressureSensitivityInput: HTMLInputElement;
   private readonly unsupportedNoticeEl: HTMLElement;
-  private readonly driveStatusEl: HTMLElement;
-  private readonly driveConnectBtn: HTMLButtonElement;
-  private readonly driveChangeFolderBtn: HTMLButtonElement;
-  private readonly driveDisconnectBtn: HTMLButtonElement;
-  private readonly driveReauthorizeBtn: HTMLButtonElement;
-  private readonly driveActions: DriveActions;
-  private readonly driveConfigured: boolean;
+  private readonly syncStatusEl: HTMLElement;
+  private readonly syncSignInBtn: HTMLButtonElement;
+  private readonly syncSignOutBtn: HTMLButtonElement;
+  private readonly syncActions: SyncActions;
+  private readonly syncConfigured: boolean;
   private onChange: (settings: AppSettings) => void = () => {};
   private current: AppSettings;
 
-  constructor(initial: AppSettings, fileSystemAccessSupported: boolean, driveConfigured: boolean, driveActions: DriveActions) {
+  constructor(initial: AppSettings, fileSystemAccessSupported: boolean, syncConfigured: boolean, syncActions: SyncActions) {
     this.current = initial;
-    this.driveActions = driveActions;
-    this.driveConfigured = driveConfigured;
+    this.syncActions = syncActions;
+    this.syncConfigured = syncConfigured;
 
     this.overlay = document.createElement("div");
     this.overlay.className = "modal-overlay";
@@ -59,18 +55,16 @@ export class SettingsDialog {
               <p class="settings-unsupported-notice"></p>
             </fieldset>
             <fieldset>
-              <legend>Google Drive連携</legend>
-              <p class="drive-status"></p>
+              <legend>クラウド同期(Googleアカウント)</legend>
+              <p class="sync-status"></p>
               <div class="modal-buttons" style="margin-top:0">
-                <button type="button" class="drive-connect-btn">連携する</button>
-                <button type="button" class="drive-reauthorize-btn">再ログイン</button>
-                <button type="button" class="drive-change-folder-btn">フォルダを変更</button>
-                <button type="button" class="drive-disconnect-btn">連携を解除</button>
+                <button type="button" class="sync-signin-btn">サインイン</button>
+                <button type="button" class="sync-signout-btn">サインアウト</button>
               </div>
               <p class="transform-panel-hint">
-                連携すると、パレット・環境設定・作業中のプロジェクトをGoogle Drive上の「ミニラフ小町」
-                フォルダへ自動で同期します(編集のたびに数秒後、バックグラウンドで)。別の端末で同じ
-                アカウントで連携すると、同じ内容が引き継がれます。
+                サインインすると、パレット・環境設定・作業中のプロジェクトをクラウドへ自動で
+                同期します(編集のたびに数秒後、バックグラウンドで)。別の端末で同じGoogle
+                アカウントでサインインすると、同じ内容が引き継がれます。
               </p>
             </fieldset>
           </div>
@@ -123,21 +117,16 @@ export class SettingsDialog {
     this.sizePressureSensitivityInput = box.querySelector(".size-pressure-sensitivity")!;
     this.opacityPressureSensitivityInput = box.querySelector(".opacity-pressure-sensitivity")!;
     this.unsupportedNoticeEl = box.querySelector(".settings-unsupported-notice")!;
-    this.driveStatusEl = box.querySelector(".drive-status")!;
-    this.driveConnectBtn = box.querySelector(".drive-connect-btn")!;
-    this.driveReauthorizeBtn = box.querySelector(".drive-reauthorize-btn")!;
-    this.driveChangeFolderBtn = box.querySelector(".drive-change-folder-btn")!;
-    this.driveDisconnectBtn = box.querySelector(".drive-disconnect-btn")!;
-    this.driveConnectBtn.addEventListener("click", () => this.driveActions.connect());
-    this.driveReauthorizeBtn.addEventListener("click", () => this.driveActions.reauthorize());
-    this.driveChangeFolderBtn.addEventListener("click", () => this.driveActions.changeFolder());
-    this.driveDisconnectBtn.addEventListener("click", () => this.driveActions.disconnect());
+    this.syncStatusEl = box.querySelector(".sync-status")!;
+    this.syncSignInBtn = box.querySelector(".sync-signin-btn")!;
+    this.syncSignOutBtn = box.querySelector(".sync-signout-btn")!;
+    this.syncSignInBtn.addEventListener("click", () => this.syncActions.signIn());
+    this.syncSignOutBtn.addEventListener("click", () => this.syncActions.signOut());
 
-    if (!driveConfigured) {
-      this.driveStatusEl.textContent = "この配信ではGoogle Drive連携を利用できません(未設定)。";
-      for (const btn of [this.driveConnectBtn, this.driveReauthorizeBtn, this.driveChangeFolderBtn, this.driveDisconnectBtn]) {
-        btn.style.display = "none";
-      }
+    if (!syncConfigured) {
+      this.syncStatusEl.textContent = "この配信ではクラウド同期を利用できません(未設定)。";
+      this.syncSignInBtn.style.display = "none";
+      this.syncSignOutBtn.style.display = "none";
     }
 
     if (!fileSystemAccessSupported) {
@@ -187,31 +176,22 @@ export class SettingsDialog {
     this.onChange = callback;
   }
 
-  /** Google Driveから設定を取り込んだ時など、外部要因でAppSettingsが変わった時に使う —
+  /** クラウドから設定を取り込んだ時など、外部要因でAppSettingsが変わった時に使う —
    * emitChange(onChange呼び出し)は発火しない(無限ループ防止、呼び出し元が既に保存済みのため)。 */
   setSettings(settings: AppSettings): void {
     this.current = settings;
     this.applyToInputs(settings);
   }
 
-  /** main.ts側がgoogle-drive.tsのonDriveStateChangeから受け取った最新状態をそのまま渡す —
+  /** main.ts側がfirebase-sync.tsのonSyncStateChangeから受け取った最新状態をそのまま渡す —
    * ダイアログが開いていない間の状態変化も反映できるよう、表示ボタンの出し分けだけでなく
-   * ステータス文言もここで作る。 */
-  updateDriveState(state: DriveAccountState): void {
-    if (!this.driveConfigured) return;
-    if (!state.connected) {
-      this.driveStatusEl.textContent = "未連携";
-    } else if (state.needsReauth) {
-      this.driveStatusEl.textContent = `${state.email}(再ログインが必要です)`;
-    } else {
-      this.driveStatusEl.textContent = `連携済み: ${state.email}(フォルダ: ${state.folderName})`;
-    }
-    this.driveConnectBtn.style.display = state.connected ? "none" : "";
-    this.driveReauthorizeBtn.style.display = state.connected && state.needsReauth ? "" : "none";
-    // フォルダ変更にはその場で有効なトークンが要る(Pickerを開くため) — 再ログインが
-    // 必要な間は押しても無言で失敗するだけになるので、先に「再ログイン」を済ませてもらう。
-    this.driveChangeFolderBtn.style.display = state.connected && !state.needsReauth ? "" : "none";
-    this.driveDisconnectBtn.style.display = state.connected ? "" : "none";
+   * ステータス文言もここで作る。Firebaseはトークン更新を自前で管理するため、Drive版にあった
+   * 「再ログインが必要」状態は存在しない(サインインしていれば常に有効)。 */
+  updateSyncState(state: SyncState): void {
+    if (!this.syncConfigured) return;
+    this.syncStatusEl.textContent = state.signedIn ? `サインイン済み: ${state.email}` : "未サインイン";
+    this.syncSignInBtn.style.display = state.signedIn ? "none" : "";
+    this.syncSignOutBtn.style.display = state.signedIn ? "" : "none";
   }
 
   show(): void {
