@@ -1,4 +1,12 @@
 import { AppSettings } from "./app-settings";
+import { DriveAccountState } from "./google-drive";
+
+export interface DriveActions {
+  connect(): void;
+  disconnect(): void;
+  changeFolder(): void;
+  reauthorize(): void;
+}
 
 /** メニューバーの「設定」から開く環境設定ダイアログ。.mrkの中身ではなくブラウザ単位の好みを
  * 扱うので、保存/読み込みダイアログ群とは独立したこのファイルに置く。項目を変更するたびに
@@ -14,11 +22,20 @@ export class SettingsDialog {
   private readonly sizePressureSensitivityInput: HTMLInputElement;
   private readonly opacityPressureSensitivityInput: HTMLInputElement;
   private readonly unsupportedNoticeEl: HTMLElement;
+  private readonly driveStatusEl: HTMLElement;
+  private readonly driveConnectBtn: HTMLButtonElement;
+  private readonly driveChangeFolderBtn: HTMLButtonElement;
+  private readonly driveDisconnectBtn: HTMLButtonElement;
+  private readonly driveReauthorizeBtn: HTMLButtonElement;
+  private readonly driveActions: DriveActions;
+  private readonly driveConfigured: boolean;
   private onChange: (settings: AppSettings) => void = () => {};
   private current: AppSettings;
 
-  constructor(initial: AppSettings, fileSystemAccessSupported: boolean) {
+  constructor(initial: AppSettings, fileSystemAccessSupported: boolean, driveConfigured: boolean, driveActions: DriveActions) {
     this.current = initial;
+    this.driveActions = driveActions;
+    this.driveConfigured = driveConfigured;
 
     this.overlay = document.createElement("div");
     this.overlay.className = "modal-overlay";
@@ -32,6 +49,21 @@ export class SettingsDialog {
         <label><input type="checkbox" class="auto-save-enabled" /> 一定周期で自動保存する(.mrk)</label>
         <label>周期(分) <input type="number" class="auto-save-interval" min="1" step="1" style="width:4em" /></label>
         <p class="settings-unsupported-notice"></p>
+      </fieldset>
+      <fieldset>
+        <legend>Google Drive連携</legend>
+        <p class="drive-status"></p>
+        <div class="modal-buttons" style="margin-top:0">
+          <button type="button" class="drive-connect-btn">連携する</button>
+          <button type="button" class="drive-reauthorize-btn">再ログイン</button>
+          <button type="button" class="drive-change-folder-btn">フォルダを変更</button>
+          <button type="button" class="drive-disconnect-btn">連携を解除</button>
+        </div>
+        <p class="transform-panel-hint">
+          連携すると、パレット・環境設定・作業中のプロジェクトをGoogle Drive上の「ミニラフ小町」
+          フォルダへ自動で同期します(編集のたびに数秒後、バックグラウンドで)。別の端末で同じ
+          アカウントで連携すると、同じ内容が引き継がれます。
+        </p>
       </fieldset>
       <fieldset>
         <legend>読み込み時のデフォルトサイズ</legend>
@@ -67,6 +99,22 @@ export class SettingsDialog {
     this.sizePressureSensitivityInput = box.querySelector(".size-pressure-sensitivity")!;
     this.opacityPressureSensitivityInput = box.querySelector(".opacity-pressure-sensitivity")!;
     this.unsupportedNoticeEl = box.querySelector(".settings-unsupported-notice")!;
+    this.driveStatusEl = box.querySelector(".drive-status")!;
+    this.driveConnectBtn = box.querySelector(".drive-connect-btn")!;
+    this.driveReauthorizeBtn = box.querySelector(".drive-reauthorize-btn")!;
+    this.driveChangeFolderBtn = box.querySelector(".drive-change-folder-btn")!;
+    this.driveDisconnectBtn = box.querySelector(".drive-disconnect-btn")!;
+    this.driveConnectBtn.addEventListener("click", () => this.driveActions.connect());
+    this.driveReauthorizeBtn.addEventListener("click", () => this.driveActions.reauthorize());
+    this.driveChangeFolderBtn.addEventListener("click", () => this.driveActions.changeFolder());
+    this.driveDisconnectBtn.addEventListener("click", () => this.driveActions.disconnect());
+
+    if (!driveConfigured) {
+      this.driveStatusEl.textContent = "この配信ではGoogle Drive連携を利用できません(未設定)。";
+      for (const btn of [this.driveConnectBtn, this.driveReauthorizeBtn, this.driveChangeFolderBtn, this.driveDisconnectBtn]) {
+        btn.style.display = "none";
+      }
+    }
 
     if (!fileSystemAccessSupported) {
       this.autoSaveEnabledCheckbox.disabled = true;
@@ -113,6 +161,31 @@ export class SettingsDialog {
    * 自動保存タイマーの再設定を行う。 */
   onSettingsChange(callback: (settings: AppSettings) => void): void {
     this.onChange = callback;
+  }
+
+  /** Google Driveから設定を取り込んだ時など、外部要因でAppSettingsが変わった時に使う —
+   * emitChange(onChange呼び出し)は発火しない(無限ループ防止、呼び出し元が既に保存済みのため)。 */
+  setSettings(settings: AppSettings): void {
+    this.current = settings;
+    this.applyToInputs(settings);
+  }
+
+  /** main.ts側がgoogle-drive.tsのonDriveStateChangeから受け取った最新状態をそのまま渡す —
+   * ダイアログが開いていない間の状態変化も反映できるよう、表示ボタンの出し分けだけでなく
+   * ステータス文言もここで作る。 */
+  updateDriveState(state: DriveAccountState): void {
+    if (!this.driveConfigured) return;
+    if (!state.connected) {
+      this.driveStatusEl.textContent = "未連携";
+    } else if (state.needsReauth) {
+      this.driveStatusEl.textContent = `${state.email}(再ログインが必要です)`;
+    } else {
+      this.driveStatusEl.textContent = `連携済み: ${state.email}(フォルダ: ${state.folderName})`;
+    }
+    this.driveConnectBtn.style.display = state.connected ? "none" : "";
+    this.driveReauthorizeBtn.style.display = state.connected && state.needsReauth ? "" : "none";
+    this.driveChangeFolderBtn.style.display = state.connected ? "" : "none";
+    this.driveDisconnectBtn.style.display = state.connected ? "" : "none";
   }
 
   show(): void {

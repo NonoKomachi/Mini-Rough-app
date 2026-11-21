@@ -1,5 +1,7 @@
 node_modules/
 dist/
+.env
+.env.local
 third_party/emsdk/
 scratch/
 scratch-profile*.ts

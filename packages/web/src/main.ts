@@ -56,6 +56,18 @@ import { isPenActive } from "./pen-state";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
 import {
+  connectDrive,
+  disconnectDrive,
+  changeDriveFolder,
+  reauthorizeDrive,
+  trySilentReconnect,
+  getDriveState,
+  onDriveStateChange,
+  uploadToDrive,
+  downloadFromDrive,
+  isDriveConfigured
+} from "./google-drive";
+import {
   ProjectFileHandleLike,
   isFileSystemAccessSupported,
   getStoredProjectFileHandle,
@@ -430,6 +442,7 @@ let tempPaletteSwatches: string[] = [];
 colorDialog.onPalettesChange((palettes, activeId) => {
   currentPalettes = palettes;
   currentActivePaletteId = activeId;
+  scheduleDrivePaletteSync();
 });
 colorDialog.onTempSwatchesChange((swatches) => {
   tempPaletteSwatches = swatches;
@@ -521,7 +534,14 @@ function resizeDocumentToResult(doc: Document, result: CanvasSizeResult): Docume
 // ブラウザ単位の好みなので、保存はlocalStorageへ(project-file.tsのプロジェクト直列化とは独立)。
 // ---------------------------------------------------------------------------
 let appSettings: AppSettings = loadAppSettings();
-const settingsDialog = new SettingsDialog(appSettings, isFileSystemAccessSupported());
+const settingsDialog = new SettingsDialog(appSettings, isFileSystemAccessSupported(), isDriveConfigured(), {
+  connect: () => void connectToDrive(),
+  disconnect: () => {
+    disconnectDrive();
+  },
+  changeFolder: () => void changeDriveFolder(),
+  reauthorize: () => void reauthorizeDrive()
+});
 
 let autoSaveTimer: ReturnType<typeof setInterval> | undefined;
 function restartAutoSaveTimer(): void {
@@ -555,7 +575,91 @@ settingsDialog.onSettingsChange((settings) => {
   saveAppSettings(settings);
   restartAutoSaveTimer();
   applyPressureSettingsToTools(settings);
+  scheduleDriveSettingsSync();
 });
+
+// ---------------------------------------------------------------------------
+// Google Drive同期(パレット・環境設定・プロジェクトの自動保存)
+//   連携済みの間、編集のたびにデバウンスしてDrive上の「ミニラフ小町」フォルダへ書き込む。
+//   読み込み(他端末からの反映)は、パレット/設定は「連携直後」と「起動時」に常にDrive優先で
+//   取り込む(これらは端末間で同一であってほしい設定値のため)。プロジェクト本体は「ローカルに
+//   何も無い(実ファイルも自動保存キャッシュも無い)初回起動時だけ」Drive側を取り込む —
+//   既にローカルで作業中の内容をDriveの古い内容で誤って上書きしないための安全策。
+// ---------------------------------------------------------------------------
+const DRIVE_PALETTES_FILENAME = "palettes.json";
+const DRIVE_SETTINGS_FILENAME = "settings.json";
+const DRIVE_PROJECT_FILENAME = "mini-rough-autosave.mrk";
+const DRIVE_SYNC_DELAY_MS = 3000;
+
+settingsDialog.updateDriveState(getDriveState());
+onDriveStateChange((state) => settingsDialog.updateDriveState(state));
+
+let drivePaletteSyncTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleDrivePaletteSync(): void {
+  if (!getDriveState().connected) return;
+  if (drivePaletteSyncTimer !== undefined) clearTimeout(drivePaletteSyncTimer);
+  drivePaletteSyncTimer = setTimeout(() => {
+    drivePaletteSyncTimer = undefined;
+    void uploadToDrive(DRIVE_PALETTES_FILENAME, JSON.stringify({ palettes: currentPalettes, activePaletteId: currentActivePaletteId }), "application/json");
+  }, DRIVE_SYNC_DELAY_MS);
+}
+
+let driveSettingsSyncTimer: ReturnType<typeof setTimeout> | undefined;
+function scheduleDriveSettingsSync(): void {
+  if (!getDriveState().connected) return;
+  if (driveSettingsSyncTimer !== undefined) clearTimeout(driveSettingsSyncTimer);
+  driveSettingsSyncTimer = setTimeout(() => {
+    driveSettingsSyncTimer = undefined;
+    void uploadToDrive(DRIVE_SETTINGS_FILENAME, JSON.stringify(appSettings), "application/json");
+  }, DRIVE_SYNC_DELAY_MS);
+}
+
+/** パレット/設定をDriveから取り込む(あれば) — 無ければ現在のローカルの内容をそのまま
+ * アップロードして種を蒔く(連携直後、Drive側にまだ何も無い場合)。connectToDrive()直後と
+ * 起動時のシレント再接続後の両方から呼ぶ。 */
+async function pullOrSeedPalettesAndSettingsFromDrive(): Promise<void> {
+  const paletteJson = await downloadFromDrive(DRIVE_PALETTES_FILENAME);
+  if (paletteJson) {
+    try {
+      const data = JSON.parse(paletteJson) as { palettes: NamedPalette[]; activePaletteId: string };
+      colorDialog.setPalettes(data.palettes, data.activePaletteId);
+      currentPalettes = colorDialog.getPalettes();
+      currentActivePaletteId = colorDialog.getActivePaletteId();
+    } catch (err) {
+      console.error(err);
+    }
+  } else {
+    void uploadToDrive(DRIVE_PALETTES_FILENAME, JSON.stringify({ palettes: currentPalettes, activePaletteId: currentActivePaletteId }), "application/json");
+  }
+
+  const settingsJson = await downloadFromDrive(DRIVE_SETTINGS_FILENAME);
+  if (settingsJson) {
+    try {
+      const parsed = JSON.parse(settingsJson) as Partial<AppSettings>;
+      appSettings = { ...appSettings, ...parsed };
+      saveAppSettings(appSettings);
+      settingsDialog.setSettings(appSettings);
+      restartAutoSaveTimer();
+      applyPressureSettingsToTools(appSettings);
+    } catch (err) {
+      console.error(err);
+    }
+  } else {
+    void uploadToDrive(DRIVE_SETTINGS_FILENAME, JSON.stringify(appSettings), "application/json");
+  }
+}
+
+async function connectToDrive(): Promise<void> {
+  const result = await connectDrive();
+  if (!result.ok) {
+    alertDialog.show(`Google Driveとの連携に失敗しました: ${result.reason}`);
+    return;
+  }
+  await pullOrSeedPalettesAndSettingsFromDrive();
+  // プロジェクト本体は、連携直後は常に現在の内容をシードとして書き込む(まだDrive側に
+  // 何も無い状態からの連携が大半のため、取り込みよりも「今の作業をまず置く」方を優先する)。
+  void buildProjectJson().then((json) => uploadToDrive(DRIVE_PROJECT_FILENAME, json, "application/octet-stream"));
+}
 
 function openColorDialogFor(slot: "main" | "sub"): void {
   const initial = slot === "main" ? mainColor : subColor;
@@ -963,6 +1067,7 @@ async function autoSaveTick(): Promise<void> {
   if (!isDirty) return;
   const json = await buildProjectJson();
   void setCachedProjectSnapshot(json);
+  if (getDriveState().connected) void uploadToDrive(DRIVE_PROJECT_FILENAME, json, "application/octet-stream");
   if (currentProjectFileHandle) {
     try {
       await writeTextToHandle(currentProjectFileHandle, json);
@@ -1108,12 +1213,29 @@ async function tryAutoRestoreOnStartup(): Promise<void> {
   }
 
   const cached = await getCachedProjectSnapshot();
-  if (!cached) return;
-  try {
-    await loadProjectFromJson(cached, false);
-  } catch (err) {
-    console.error(err);
-    // キャッシュが壊れていた場合などはそのまま白紙で起動する。
+  if (cached) {
+    try {
+      await loadProjectFromJson(cached, false);
+    } catch (err) {
+      console.error(err);
+      // キャッシュが壊れていた場合などはそのまま白紙で起動する。
+    }
+    return;
+  }
+
+  // 実ファイルのハンドルも自動保存キャッシュも無い(=このブラウザ/端末には何も残っていない)
+  // 場合だけ、Google Driveの自動保存ファイルを試す — 別端末で初めて開いた時に前回の続きを
+  // 見られるようにするための経路。ローカルに何かあるケースでは絶対に触れない(Drive側の古い
+  // 内容で今の作業を上書きしてしまわないように)。
+  if (getDriveState().connected) {
+    const driveJson = await downloadFromDrive(DRIVE_PROJECT_FILENAME);
+    if (driveJson) {
+      try {
+        await loadProjectFromJson(driveJson, false);
+      } catch (err) {
+        console.error(err);
+      }
+    }
   }
 }
 
@@ -2553,6 +2675,12 @@ updateLayoutMode();
 restartAutoSaveTimer();
 // 起動時の初期ドキュメント作成はgrid.onEditを発火させるが、これはユーザーの「変更」ではない。
 isDirty = false;
-// 前回のファイル(実ファイルのハンドル、無ければ自動保存キャッシュ)が生きていれば無言で
-// 読み込む。どちらも無い/失敗した場合は何もせず上の白紙ドキュメントのまま。
+// 前回のファイル(実ファイルのハンドル、無ければ自動保存キャッシュ、それも無ければ連携済みの
+// Google Drive)が生きていれば無言で読み込む。どれも無い/失敗した場合は何もせず上の白紙
+// ドキュメントのまま。
 void tryAutoRestoreOnStartup();
+// Google Driveの連携状態をサイレントに復元 — キャッシュされたアカウントがあればトークンだけ
+// 無言で取り直し、成功していればパレット/環境設定をDrive優先で取り込む(連携直後と同じ処理)。
+void trySilentReconnect().then(() => {
+  if (getDriveState().connected) void pullOrSeedPalettesAndSettingsFromDrive();
+});
