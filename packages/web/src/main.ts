@@ -40,7 +40,8 @@ import { CanvasSizeDialog, CanvasSizeResult } from "./canvas-size-dialog";
 import { SaveDialog, SaveFormat } from "./save-dialog";
 import { BatchExportDialog } from "./batch-export-dialog";
 import { ColorDialog } from "./color-dialog";
-import { NamedPalette, DEFAULT_PALETTE_ID } from "./color-picker";
+import { NamedPalette } from "./color-picker";
+import { loadCachedPalettes, saveCachedPalettes } from "./palette-cache";
 import { PaletteManagerDialog } from "./palette-manager-dialog";
 import { SizePresetDialog } from "./size-preset-dialog";
 import { AboutDialog } from "./about-dialog";
@@ -424,13 +425,23 @@ function applyColorToTools(rgba: RGBA): void {
 // Dialogs
 // ---------------------------------------------------------------------------
 const colorDialog = new ColorDialog();
-// プロジェクトファイルの保存/読込で使う最新のパレット状態(ColorPickerから都度同期される)。
+// パレット(一時パレットではない方)は「今開いているプロジェクト」にではなく「このブラウザ/
+// このアカウント」に属する設定として扱う(.mrkには含めない) — 未サインイン時はここで
+// ローカルキャッシュから復元し、Firebaseにサインインしていればその後クラウド側が優先される
+// (下のonSyncStateChange経由)。
 let currentPalettes: NamedPalette[] = colorDialog.getPalettes();
 let currentActivePaletteId: string = colorDialog.getActivePaletteId();
+const cachedPalettes = loadCachedPalettes();
+if (cachedPalettes) {
+  colorDialog.setPalettes(cachedPalettes.palettes, cachedPalettes.activePaletteId);
+  currentPalettes = colorDialog.getPalettes();
+  currentActivePaletteId = colorDialog.getActivePaletteId();
+}
 let tempPaletteSwatches: string[] = [];
 colorDialog.onPalettesChange((palettes, activeId) => {
   currentPalettes = palettes;
   currentActivePaletteId = activeId;
+  saveCachedPalettes(palettes, activeId);
   scheduleSyncPalettes();
 });
 colorDialog.onTempSwatchesChange((swatches) => {
@@ -957,8 +968,6 @@ async function buildProjectJson(): Promise<string> {
     bgColor,
     bgMode,
     brushSizes,
-    palettes: currentPalettes,
-    activePaletteId: currentActivePaletteId,
     tempPalette: tempPaletteSwatches,
     activeToolId: activeId
   });
@@ -1108,15 +1117,8 @@ async function loadProjectFromJson(text: string, clearCache = true): Promise<voi
       if (tool && hasSize(tool)) tool.size = size;
     }
 
-    // 複数パレット導入前の旧保存ファイルは`palettes`を持たず、代わりに名前無しの`savedPalette`
-    // (単一の配列)しか無いので、1つのパレットとして読み替える。
-    const loadedPalettes: NamedPalette[] = restored.data.palettes ?? [
-      { id: DEFAULT_PALETTE_ID, name: "パレット1", swatches: restored.data.savedPalette ?? [] }
-    ];
-    const loadedActivePaletteId = restored.data.activePaletteId ?? loadedPalettes[0].id;
-    colorDialog.setPalettes(loadedPalettes, loadedActivePaletteId);
-    currentPalettes = colorDialog.getPalettes();
-    currentActivePaletteId = colorDialog.getActivePaletteId();
+    // パレット(一時パレットではない方)はプロジェクトファイルに属さない設定になったため、
+    // プロジェクトを読み込んでも変更しない(このブラウザ/アカウントのパレットのまま)。
     tempPaletteSwatches = restored.data.tempPalette;
     colorDialog.setTempSwatches(tempPaletteSwatches);
 

@@ -47,12 +47,10 @@ interface ProjectFileVariant {
   otherModeLayers?: ProjectFileNode[];
 }
 
-export interface ProjectFilePalette {
-  id: string;
-  name: string;
-  swatches: string[];
-}
-
+/** 名前付きパレット(一時パレットではない方)は2026-11以降プロジェクトファイルには含めない —
+ * ブラウザ/アカウント単位の設定として扱う(palette-cache.ts / firebase-sync.ts参照)。旧
+ * バージョンの保存ファイルに`palettes`/`activePaletteId`/`savedPalette`フィールドが残って
+ * いても、JSON.parseは型チェックをしないため単に無視されるだけで問題にならない。 */
 export interface ProjectFileData {
   formatVersion: number;
   mainColor: RGBA;
@@ -60,13 +58,6 @@ export interface ProjectFileData {
   bgColor: RGBA;
   bgMode: "color" | "transparent";
   brushSizes: Record<string, number>;
-  /** 複数の名前付きパレット。旧バージョンの保存ファイルには無く、代わりに`savedPalette`
-   * (名前無しの単一パレット、下方互換のため残す)しか無いので、読み込み時はcaller(main.ts)が
-   * `savedPalette`を1つのパレットとして読み替える。 */
-  palettes?: ProjectFilePalette[];
-  activePaletteId?: string;
-  /** 旧フォーマット(複数パレット導入前)専用 — 新しい保存では書き込まない。 */
-  savedPalette?: string[];
   tempPalette: string[];
   activeVariantIndex: number;
   activeToolId: string;
@@ -150,8 +141,6 @@ export interface ProjectUiState {
   bgColor: RGBA;
   bgMode: "color" | "transparent";
   brushSizes: Record<string, number>;
-  palettes: ProjectFilePalette[];
-  activePaletteId: string;
   tempPalette: string[];
   activeToolId: string;
 }
@@ -170,8 +159,6 @@ export async function serializeProject(grid: VariantGrid, ui: ProjectUiState): P
     bgColor: ui.bgColor,
     bgMode: ui.bgMode,
     brushSizes: ui.brushSizes,
-    palettes: ui.palettes,
-    activePaletteId: ui.activePaletteId,
     tempPalette: ui.tempPalette,
     activeVariantIndex: activeIndex,
     activeToolId: ui.activeToolId,
