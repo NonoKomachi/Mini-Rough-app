@@ -77,6 +77,13 @@ export class VariantGrid {
   private variants: Variant[] = [];
   private activeId: string | null = null;
   private autoFitMode: AutoFitMode = null;
+  /** バリエーションの並び替え(ヘッダーのドラッグ)用の状態 — layer-panel.tsのレイヤー並び替えと
+   * 同じPointer Events方式(HTML5 drag-and-dropではなくpointerdown/move/up)を使う理由も同じ:
+   * ペン(スタイラス)ではdragstartが確実に発火しないブラウザがあるため。 */
+  private dragCandidateVariantId: string | null = null;
+  private draggingVariantId: string | null = null;
+  private dragStartX = 0;
+  private dragStartY = 0;
   /** Applied to every widget, including ones created after this was last set — see
    * setTouchEditingEnabledForAll. */
   private touchEditingEnabled = false;
@@ -225,6 +232,56 @@ export class VariantGrid {
       if (this.activeId !== variant.id) this.setActive(variant.id);
     });
 
+    // ヘッダーをドラッグしてバリエーションの並び順を入れ替える。しきい値を超えるまでは
+    // setPointerCaptureを呼ばない(layer-panel.tsの行ドラッグと同じ理由 — Chromeは captured
+    // pointer の以降のmouseup/clickをcapture元の要素へretargetするため、無条件にcaptureすると
+    // タップ(=タイルを選ぶクリック)まで吸われてしまう)。pointerdown自体は常に
+    // stopPropagationする — ここは#canvas-viewportレベルのパン/キャンバス外ドラッグ描画が
+    // 関与すべきでないタイルの「chrome」部分なので、二重に処理されるのを防ぐ。
+    header.style.touchAction = "none";
+    header.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      this.dragCandidateVariantId = variant.id;
+      this.dragStartX = e.clientX;
+      this.dragStartY = e.clientY;
+    });
+    header.addEventListener("pointermove", (e) => {
+      if (this.dragCandidateVariantId !== variant.id) return;
+      if (!this.draggingVariantId) {
+        if (Math.hypot(e.clientX - this.dragStartX, e.clientY - this.dragStartY) < 4) return;
+        this.draggingVariantId = variant.id;
+        tile.classList.add("dragging");
+        header.setPointerCapture(e.pointerId);
+      }
+      e.preventDefault();
+      this.clearVariantDragHints();
+      const targetTile = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(".variant-tile") as HTMLElement | null;
+      if (!targetTile || targetTile === tile) return;
+      const rect = targetTile.getBoundingClientRect();
+      const afterHalf = e.clientX - rect.left > rect.width / 2;
+      targetTile.classList.add(afterHalf ? "drag-over-after" : "drag-over");
+    });
+    const endVariantDrag = (e: PointerEvent): void => {
+      if (this.dragCandidateVariantId !== variant.id) return;
+      if (header.hasPointerCapture(e.pointerId)) header.releasePointerCapture(e.pointerId);
+      this.dragCandidateVariantId = null;
+      tile.classList.remove("dragging");
+      const draggedId = this.draggingVariantId;
+      this.draggingVariantId = null;
+      this.clearVariantDragHints();
+      if (!draggedId) return; // しきい値を超えなかった = ただのタップ(タイル選択はtileのclickに任せる)
+      const targetTile = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest(".variant-tile") as HTMLElement | null;
+      if (!targetTile || targetTile === tile) return;
+      const targetVariant = this.variants.find((v) => v.tileEl === targetTile);
+      if (!targetVariant) return;
+      const rect = targetTile.getBoundingClientRect();
+      const afterHalf = e.clientX - rect.left > rect.width / 2;
+      this.reorderVariant(draggedId, targetVariant.id, afterHalf);
+    };
+    header.addEventListener("pointerup", endVariantDrag);
+    header.addEventListener("pointercancel", endVariantDrag);
+
     this.variants.push(variant);
     // Labels always reflect creation order among the CURRENTLY remaining variants (#1, #2, ...)
     // rather than an ever-incrementing counter, so a deleted variant's number doesn't stay
@@ -240,6 +297,33 @@ export class VariantGrid {
       v.label = `#${i + 1}`;
       v.nameEl.textContent = v.label;
     });
+  }
+
+  private clearVariantDragHints(): void {
+    this.gridEl.querySelectorAll(".drag-over, .drag-over-after").forEach((el) => {
+      el.classList.remove("drag-over", "drag-over-after");
+    });
+  }
+
+  /** `draggedId`のバリエーションを、`targetId`の直前(after=false)/直後(after=true)へ移動する
+   * (ヘッダーのドラッグ&ドロップから呼ばれる)。配列の並びを変えた後、DOM上の並び順(CSS
+   * Gridのdense packingがソース順に依存する)もgridEl.appendChildで一括して揃え直す —
+   * appendChildは既存の子を末尾へ「移動」する仕様なので、配列の順になぞるだけで揃う。 */
+  private reorderVariant(draggedId: string, targetId: string, after: boolean): void {
+    if (draggedId === targetId) return;
+    const fromIndex = this.variants.findIndex((v) => v.id === draggedId);
+    if (fromIndex === -1) return;
+    const [dragged] = this.variants.splice(fromIndex, 1);
+    let toIndex = this.variants.findIndex((v) => v.id === targetId);
+    if (toIndex === -1) {
+      this.variants.splice(fromIndex, 0, dragged);
+      return;
+    }
+    if (after) toIndex += 1;
+    this.variants.splice(toIndex, 0, dragged);
+    for (const v of this.variants) this.gridEl.appendChild(v.tileEl);
+    this.renumberAll();
+    this.onEdit?.();
   }
 
   /** New variant seeded with the same settings as the currently active one, always starting at

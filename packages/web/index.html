@@ -687,6 +687,15 @@
       .variant-tile.active {
         border-color: #4a7dff;
       }
+      .variant-tile.dragging {
+        opacity: 0.5;
+      }
+      .variant-tile.drag-over {
+        border-left: 3px solid #4a7dff;
+      }
+      .variant-tile.drag-over-after {
+        border-right: 3px solid #4a7dff;
+      }
       .variant-tile:not(.active) .doc-canvas {
         opacity: 0.85;
         pointer-events: none;
@@ -697,6 +706,8 @@
         gap: 4px;
         font-size: 11px;
         margin-bottom: 4px;
+        /* ヘッダーをドラッグしてバリエーションの並び替えができることを示す(variant-grid.ts)。 */
+        cursor: grab;
         /* Without this, a narrow tile (small canvas / low zoom) wraps the "書き出し" button's
            label onto two lines, silently inflating the header's — and therefore the tile's —
            real height far past what updateTileSpan() in variant-grid.ts estimated. */
