@@ -40,6 +40,17 @@ const CLIP_ICON_SVG = `
   <rect x="6" y="5" width="4" height="6" fill="#3b82f6"/>
 </svg>`;
 
+// 「透明ピクセルをロック」: 市松模様(透明の表現)+南京錠。CLIP STUDIOの同機能と同じ発想の
+// アイコン(錠がかかっている=既存の不透明部分の外には描けない、という意味を示す)。
+const ALPHA_LOCK_ICON_SVG = `
+<svg viewBox="0 0 16 16" width="13" height="13" xmlns="http://www.w3.org/2000/svg">
+  <rect x="1" y="6.5" width="14" height="8" rx="1" fill="#ffffff" stroke="#333333" stroke-width="1"/>
+  <rect x="1" y="6.5" width="7" height="4" fill="#bbbbbb"/>
+  <rect x="8" y="10.5" width="7" height="4" fill="#bbbbbb"/>
+  <path d="M5 7 V4.6 A3 3 0 0 1 11 4.6 V7" fill="none" stroke="#333333" stroke-width="1.3"/>
+  <rect x="6.3" y="9" width="3.4" height="3" rx="0.6" fill="#f2c14e" stroke="#333333" stroke-width="0.8"/>
+</svg>`;
+
 // フォルダーの開閉トグル。閉じている間は右向き、開いている間は下向きの三角。
 const FOLDER_EXPAND_ICON_SVG = `
 <svg viewBox="0 0 16 16" width="10" height="10" xmlns="http://www.w3.org/2000/svg">
@@ -76,10 +87,11 @@ export class LayerPanel {
   private readonly promptRename: (title: string, defaultValue: string, onResult: (value: string | null) => void) => void;
   private readonly listEl: HTMLDivElement;
   private readonly opacityInput: HTMLInputElement;
-  private readonly opacityValue: HTMLSpanElement;
+  private readonly opacityValue: HTMLInputElement;
   private readonly blendModeSelect: HTMLSelectElement;
   private readonly maskBtn: HTMLButtonElement;
   private readonly clipBtn: HTMLButtonElement;
+  private readonly alphaLockBtn: HTMLButtonElement;
   private readonly duplicateBtn: HTMLButtonElement;
   private readonly mergeDownBtn: HTMLButtonElement;
   /** Set once a drag gesture has moved past the threshold and is actually reordering a layer —
@@ -166,6 +178,17 @@ export class LayerPanel {
       this.refresh();
     });
 
+    this.alphaLockBtn = document.createElement("button");
+    this.alphaLockBtn.innerHTML = ALPHA_LOCK_ICON_SVG;
+    this.alphaLockBtn.title = "透明ピクセルをロック(既に不透明な部分にしか描画/塗りつぶしできなくなります)";
+    this.alphaLockBtn.addEventListener("click", () => {
+      const node = this.activeNode();
+      if (!node || node.kind !== "layer") return;
+      this.onBeforeChange();
+      node.alphaLocked = !node.alphaLocked;
+      this.refresh();
+    });
+
     this.duplicateBtn = document.createElement("button");
     this.duplicateBtn.innerHTML = DUPLICATE_ICON_SVG;
     this.duplicateBtn.title = "レイヤー/フォルダーを複製";
@@ -206,6 +229,7 @@ export class LayerPanel {
     toolbar.appendChild(addFolderBtn);
     toolbar.appendChild(this.maskBtn);
     toolbar.appendChild(this.clipBtn);
+    toolbar.appendChild(this.alphaLockBtn);
     toolbar.appendChild(this.duplicateBtn);
     toolbar.appendChild(this.mergeDownBtn);
     toolbar.appendChild(spacer);
@@ -220,15 +244,36 @@ export class LayerPanel {
     this.opacityInput.type = "range";
     this.opacityInput.min = "0";
     this.opacityInput.max = "100";
-    this.opacityValue = document.createElement("span");
+    // 不透明度は数値でも直接指定できるように、スライダーと相互に同期する編集可能な数値入力にする
+    // (以前は読み取り専用のspanだった)。
+    this.opacityValue = document.createElement("input");
+    this.opacityValue.type = "number";
     this.opacityValue.className = "value";
+    this.opacityValue.min = "0";
+    this.opacityValue.max = "100";
     this.opacityInput.addEventListener("pointerdown", () => this.onBeforeChange());
     this.opacityInput.addEventListener("input", () => {
       const node = this.activeNode();
       if (!node) return;
       node.opacity = Number(this.opacityInput.value) / 100;
-      this.opacityValue.textContent = `${this.opacityInput.value}%`;
+      this.opacityValue.value = this.opacityInput.value;
       this.onChange();
+    });
+    this.opacityValue.addEventListener("focus", () => this.onBeforeChange());
+    this.opacityValue.addEventListener("input", () => {
+      const node = this.activeNode();
+      if (!node) return;
+      const raw = Number(this.opacityValue.value);
+      if (!Number.isFinite(raw)) return;
+      const pct = Math.max(0, Math.min(100, Math.round(raw)));
+      node.opacity = pct / 100;
+      this.opacityInput.value = String(pct);
+      this.onChange();
+    });
+    // フォーカスを外した時点で、空欄や範囲外の入力を実際の値へ揃え直す(入力中は上のinput
+    // ハンドラが範囲外のままでも一旦許容しているため)。
+    this.opacityValue.addEventListener("blur", () => {
+      this.opacityValue.value = this.opacityInput.value;
     });
     opacityRow.appendChild(opacityLabel);
     opacityRow.appendChild(this.opacityInput);
@@ -290,18 +335,21 @@ export class LayerPanel {
     const active = this.activeNode();
     const hasActive = !!active;
     this.opacityInput.disabled = !hasActive;
+    this.opacityValue.disabled = !hasActive;
     const pct = hasActive ? Math.round(active!.opacity * 100) : 0;
     this.opacityInput.value = String(pct);
-    this.opacityValue.textContent = hasActive ? `${pct}%` : "-";
+    this.opacityValue.value = hasActive ? String(pct) : "";
 
     const activeLayer = active?.kind === "layer" ? active : undefined;
     this.maskBtn.disabled = !activeLayer;
     this.clipBtn.disabled = !activeLayer;
+    this.alphaLockBtn.disabled = !activeLayer;
     this.duplicateBtn.disabled = !hasActive;
     const belowNode = activeLayer ? this.doc.nodeBelow(activeLayer.id) : undefined;
     this.mergeDownBtn.disabled = !activeLayer || !belowNode || belowNode.kind !== "layer";
     this.maskBtn.classList.toggle("active", !!activeLayer?.mask);
     this.clipBtn.classList.toggle("active", !!activeLayer?.clipToBelow);
+    this.alphaLockBtn.classList.toggle("active", !!activeLayer?.alphaLocked);
     this.blendModeSelect.disabled = !activeLayer;
     this.blendModeSelect.value = String(activeLayer?.blendMode ?? 0);
   }

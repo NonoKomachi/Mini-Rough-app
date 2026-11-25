@@ -2,7 +2,7 @@ import { Document, RasterLayer } from "../document";
 import { RGBA, StrokeTool } from "./tool";
 import { setPixel } from "./raster-utils";
 import { pressureToSize, applyPressureSensitivity } from "./pressure";
-import { SelectionMask, maskHasSelection } from "../selection";
+import { SelectionMask, maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 /** Hard edge (no anti-aliasing), full opacity, pressure drives size. */
 export class PencilTool implements StrokeTool {
@@ -42,8 +42,9 @@ export class PencilTool implements StrokeTool {
   private drawDab(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     const effectivePressure = applyPressureSensitivity(pressure, this.pressureSensitivity);
     const radius = Math.max(0.5, pressureToSize(this.size, effectivePressure) / 2);
-    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
-    this.stampCircle(layer, x, y, radius, mask);
+    const selMask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(layer.pixels) : null;
+    this.stampCircle(layer, x, y, radius, combineMasks(selMask, alphaMask));
   }
 
   private stampCircle(layer: RasterLayer, cx: number, cy: number, radius: number, mask: SelectionMask | null): void {

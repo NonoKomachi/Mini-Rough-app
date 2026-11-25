@@ -2,7 +2,7 @@ import { Document, RasterLayer } from "../document";
 import { RGBA, StrokeTool } from "./tool";
 import { StrokeCoverage, applyColorStroke, applyEraseStroke } from "./stroke-buffer";
 import { pressureToSize, applyPressureSensitivity } from "./pressure";
-import { maskHasSelection } from "../selection";
+import { maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 /** Soft edge, fixed opacity per dab (pressure drives size only). */
 export class BrushTool implements StrokeTool {
@@ -48,7 +48,9 @@ export class BrushTool implements StrokeTool {
     const effectivePressure = applyPressureSensitivity(pressure, this.pressureSensitivity);
     const radius = pressureToSize(this.size, effectivePressure) / 2;
     this.coverage!.stampSoftCircle(x, y, radius, 1);
-    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const selMask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(this.preStroke!) : null;
+    const mask = combineMasks(selMask, alphaMask);
     // "Transparent color" (alpha 0) means erase-with-this-shape rather than a (no-op) transparent paint.
     if (this.color[3] === 0) {
       applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1, mask);

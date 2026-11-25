@@ -36,4 +36,4 @@ export type { LayerSnapshot } from "./history";
 export { resizeDocumentMini, reconcileDocumentResolution } from "./resize";
 export { applyPressureSensitivity } from "./tools/pressure";
 export type { SelectionMask } from "./selection";
-export { maskHasSelection, fillWithColor, getMaskBounds } from "./selection";
+export { maskHasSelection, fillWithColor, getMaskBounds, combineMasks, alphaAsMask } from "./selection";

@@ -2,7 +2,7 @@ import { Document, RasterLayer } from "../document";
 import { StrokeTool } from "./tool";
 import { StrokeCoverage, applyEraseStroke } from "./stroke-buffer";
 import { pressureToSize, applyPressureSensitivity } from "./pressure";
-import { maskHasSelection } from "../selection";
+import { maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 /** Hard edge, pressure drives size only (always erases to full transparency within coverage). */
 export class EraserTool implements StrokeTool {
@@ -47,7 +47,8 @@ export class EraserTool implements StrokeTool {
     const effectivePressure = applyPressureSensitivity(pressure, this.pressureSensitivity);
     const radius = pressureToSize(this.size, effectivePressure) / 2;
     this.coverage!.stampHardCircle(x, y, radius, 1);
-    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
-    applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1, mask);
+    const selMask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(this.preStroke!) : null;
+    applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1, combineMasks(selMask, alphaMask));
   }
 }

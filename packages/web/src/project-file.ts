@@ -19,6 +19,9 @@ interface ProjectFileRasterLayer extends ProjectFileLayerBase {
   /** CLIP STUDIO PAINTのLayerComposite合成モードコード(@mini-rough/coreのBlendMode)。旧バージョンの
    * 保存ファイルには無いので、読み込み時はundefined→0(通常)として扱う。 */
   blendMode?: number;
+  /** 「透明ピクセルをロック」。旧バージョンの保存ファイルには無いので、読み込み時はundefined→
+   * false(ロックなし)として扱う。 */
+  alphaLocked?: boolean;
 }
 
 interface ProjectFileFolder extends ProjectFileLayerBase {
@@ -112,7 +115,8 @@ function serializeLayerNode(node: LayerNode): ProjectFileNode {
     maskPng: node.mask ? pixelsToPngDataUrl(node.mask, node.width, node.height) : null,
     maskEnabled: node.maskEnabled,
     clipToBelow: node.clipToBelow,
-    blendMode: node.blendMode
+    blendMode: node.blendMode,
+    alphaLocked: node.alphaLocked
   };
 }
 
@@ -129,6 +133,7 @@ async function deserializeLayerNode(data: ProjectFileNode, width: number, height
   layer.opacity = data.opacity;
   layer.clipToBelow = data.clipToBelow;
   layer.blendMode = data.blendMode ?? 0;
+  layer.alphaLocked = data.alphaLocked ?? false;
   layer.maskEnabled = data.maskEnabled;
   layer.pixels.set(await pngDataUrlToPixels(data.pixelsPng, width, height));
   if (data.maskPng) layer.mask = await pngDataUrlToPixels(data.maskPng, width, height);

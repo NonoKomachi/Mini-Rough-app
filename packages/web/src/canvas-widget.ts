@@ -385,7 +385,9 @@ export class CanvasWidget {
     if (maskLayerId) {
       const layer = this.doc.findLayer(maskLayerId);
       if (layer?.mask) {
-        return { kind: "layer", id: layer.id, name: layer.name, width: layer.width, height: layer.height, visible: true, opacity: 1, mask: null, maskEnabled: true, clipToBelow: false, pixels: layer.mask } as RasterLayer;
+        // マスク編集はRGBA色の「透明/不透明」とは無関係の概念なので、実レイヤーのalphaLockedが
+        // trueでもここでは常にfalse固定(マスクへの描画が意図せず制限されないように)。
+        return { kind: "layer", id: layer.id, name: layer.name, width: layer.width, height: layer.height, visible: true, opacity: 1, mask: null, maskEnabled: true, clipToBelow: false, alphaLocked: false, pixels: layer.mask } as RasterLayer;
       }
     }
     return this.doc.getActiveLayer();

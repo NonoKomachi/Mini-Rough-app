@@ -23,6 +23,10 @@ export class RasterLayer {
   /** "クリッピング": clips this layer's alpha to the nearest non-clipped layer directly below it
    * in the same list (see rendering.ts). */
   clipToBelow = false;
+  /** "透明ピクセルをロック": trueの間、描画/塗りつぶしはこのレイヤーが既に不透明な部分にしか
+   * 効かない(透明だった場所に新たに不透明なピクセルを作れない)。各ツール側(pencil/brush/
+   * eraser/transparent-brush/dot-pen/bucket-fill)がselectionMaskと同じ仕組みで参照する。 */
+  alphaLocked = false;
 
   constructor(name: string, width: number, height: number, id = createId()) {
     this.id = id;
@@ -285,6 +289,7 @@ export class Document {
       clone.blendMode = node.blendMode;
       clone.maskEnabled = node.maskEnabled;
       clone.clipToBelow = node.clipToBelow;
+      clone.alphaLocked = node.alphaLocked;
       clone.pixels.set(node.pixels);
       if (node.mask) {
         clone.mask = new Uint8ClampedArray(node.mask.length);

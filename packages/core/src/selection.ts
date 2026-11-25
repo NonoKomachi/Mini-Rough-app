@@ -14,6 +14,27 @@ export function maskHasSelection(mask: SelectionMask | null): boolean {
   return mask.some((v) => v !== 0);
 }
 
+/** `a`と`b`の論理積。どちらかがnullならもう片方をそのまま返す(新規配列を作らない) —
+ * 選択範囲と「透明度をロック」を同時に満たす必要があるツールが、既存のsetPixel/
+ * applyColorStroke等の単一mask引数へそのまま渡せる1つのmaskにまとめるために使う。 */
+export function combineMasks(a: SelectionMask | null, b: SelectionMask | null): SelectionMask | null {
+  if (!a) return b;
+  if (!b) return a;
+  const combined = new Uint8Array(a.length);
+  for (let i = 0; i < a.length; i++) combined[i] = a[i] && b[i] ? 255 : 0;
+  return combined;
+}
+
+/** レイヤーの現在のアルファ(不透明/透明)をSelectionMask形式に変換する — 「透明ピクセルを
+ * ロック」(RasterLayer.alphaLocked)有効時、描画/塗りつぶしを「既に不透明な場所」だけに
+ * 制限するためのmaskとして使う。 */
+export function alphaAsMask(pixels: Uint8ClampedArray): SelectionMask {
+  const count = pixels.length / 4;
+  const mask = new Uint8Array(count);
+  for (let i = 0; i < count; i++) mask[i] = pixels[i * 4 + 3] > 0 ? 255 : 0;
+  return mask;
+}
+
 /** Smallest rectangle (half-open: [x, x+w), [y, y+h)) containing every selected pixel, or null
  * if the mask has no selection at all. Used by copy/cut to know how much to extract. */
 export function getMaskBounds(mask: SelectionMask, width: number, height: number): { x: number; y: number; w: number; h: number } | null {

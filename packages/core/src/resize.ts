@@ -31,6 +31,7 @@ function cloneNodeResized(node: LayerNode, srcW: number, srcH: number, dstW: num
     clone.blendMode = node.blendMode;
     clone.maskEnabled = node.maskEnabled;
     clone.clipToBelow = node.clipToBelow;
+    clone.alphaLocked = node.alphaLocked;
     clone.pixels.set(resampleNearestNeighbor(node.pixels, srcW, srcH, dstW, dstH));
     if (node.mask) clone.mask = resampleNearestNeighbor(node.mask, srcW, srcH, dstW, dstH);
     return clone;
@@ -81,6 +82,7 @@ function reconcileNode(
     existing.blendMode = node.blendMode;
     existing.maskEnabled = node.maskEnabled;
     existing.clipToBelow = node.clipToBelow;
+    existing.alphaLocked = node.alphaLocked;
     if (!node.mask) {
       existing.mask = null;
     } else if (!existing.mask) {

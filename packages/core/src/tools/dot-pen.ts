@@ -1,7 +1,7 @@
 import { Document, RasterLayer } from "../document";
 import { RGBA, StrokeTool } from "./tool";
 import { setPixel, bresenhamLine } from "./raster-utils";
-import { maskHasSelection } from "../selection";
+import { maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 /** Fixed 1px, no anti-aliasing, ignores pressure entirely. */
 export class DotPenTool implements StrokeTool {
@@ -11,8 +11,7 @@ export class DotPenTool implements StrokeTool {
 
   beginStroke(layer: RasterLayer, x: number, y: number, _pressure: number, doc?: Document): void {
     this.last = { x, y };
-    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
-    setPixel(layer, Math.floor(x), Math.floor(y), this.color, mask);
+    setPixel(layer, Math.floor(x), Math.floor(y), this.color, this.resolveMask(layer, doc));
   }
 
   continueStroke(layer: RasterLayer, x: number, y: number, _pressure: number, doc?: Document): void {
@@ -20,11 +19,17 @@ export class DotPenTool implements StrokeTool {
       this.beginStroke(layer, x, y, _pressure, doc);
       return;
     }
-    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const mask = this.resolveMask(layer, doc);
     for (const [px, py] of bresenhamLine(this.last.x, this.last.y, x, y)) {
       setPixel(layer, px, py, this.color, mask);
     }
     this.last = { x, y };
+  }
+
+  private resolveMask(layer: RasterLayer, doc?: Document) {
+    const selMask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(layer.pixels) : null;
+    return combineMasks(selMask, alphaMask);
   }
 
   endStroke(): void {

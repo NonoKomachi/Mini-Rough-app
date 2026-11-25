@@ -1,6 +1,6 @@
 import { Document, RasterLayer } from "../document";
 import { DragTool, RGBA } from "./tool";
-import { applyLinearGradient, maskHasSelection } from "../selection";
+import { applyLinearGradient, maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 export type GradientPair = "mainToSub" | "mainToTransparent" | "subToTransparent";
 
@@ -36,8 +36,9 @@ export class GradientTool implements DragTool {
     if (!layer || !this.start || !this.preStroke) return;
     layer.pixels.set(this.preStroke);
     const [colorA, colorB] = this.resolveColors();
-    const mask = maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
-    applyLinearGradient(layer, mask, this.start.x, this.start.y, x, y, colorA, colorB);
+    const selMask = maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(this.preStroke) : null;
+    applyLinearGradient(layer, combineMasks(selMask, alphaMask), this.start.x, this.start.y, x, y, colorA, colorB);
   }
 
   private resolveColors(): [RGBA, RGBA] {

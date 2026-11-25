@@ -1,7 +1,7 @@
 import { Document, RasterLayer } from "../document";
 import { DragTool, RGBA } from "./tool";
 import { setPixel, stampFilledCircle } from "./raster-utils";
-import { SelectionMask, maskHasSelection } from "../selection";
+import { SelectionMask, maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 export type ShapeKind = "line" | "rect" | "ellipse" | "triangle" | "star";
 export type AngleMode = "none" | "snap45" | "snapCustom" | "free";
@@ -238,7 +238,9 @@ export class ShapeTool implements DragTool {
     const layer = doc.getActiveLayer();
     if (!layer || !this.preStroke || !this.start) return;
     layer.pixels.set(this.preStroke);
-    const mask = maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const selMask = maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(this.preStroke) : null;
+    const mask = combineMasks(selMask, alphaMask);
     if (this.shape === "line") {
       if (!this.current) return;
       this.paintLine(layer, this.start, this.current, mask);
