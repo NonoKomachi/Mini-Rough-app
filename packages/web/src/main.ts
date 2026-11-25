@@ -1481,7 +1481,16 @@ function applyLoadedDocument(imported: ImportedDocument, mode: LoadMode): ApplyL
         reason: `縦横比(${fileDoc.finalWidth}×${fileDoc.finalHeight})が現在のバリエーションの完成サイズ(${target.finalWidth}×${target.finalHeight})と異なります`
       };
     }
-    grid.addVariant(fileDoc);
+    // ファイル自身が記録しているミニラフ解像度は、.clip以外(png/jpg/psd等、そもそもミニラフの
+    // 概念が無い)や、ミニラフ情報を持たない外部.clipでは完成サイズと同じ(=等倍)になっている。
+    // そのまま追加すると、このバリエーションだけミニラフ/完成サイズが同サイズで表示される
+    // 不具合になる(ユーザー報告)。縦横比は上で確認済みなので、他のバリエーションと揃えるために
+    // 現在のバリエーションのミニラフ解像度へリサンプルする。
+    const resizedFileDoc =
+      fileDoc.width === target.width && fileDoc.height === target.height
+        ? fileDoc
+        : resizeDocumentMini(fileDoc, target.width, target.height);
+    grid.addVariant(resizedFileDoc);
   }
   const added = grid.getActive();
   if (added) added.otherModeDoc = imported.finalDoc;
