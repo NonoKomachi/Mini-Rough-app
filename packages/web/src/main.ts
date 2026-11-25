@@ -2436,6 +2436,10 @@ window.addEventListener("keydown", (e) => {
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activePointers.size === 1) {
       if (isInsideDocCanvas(e.target)) return; // キャンバス上の1本指は描画に使わせる。
+      // 図形/選択範囲ツールは、キャンバスの外から始めたドラッグもアクティブなバリエーションへの
+      // 描画/選択として引き継がせる(ユーザー要望) — それ以外のツールでは何も起きず、
+      // 下のパン(スクロール)にそのまま通す。
+      if (grid.getActive()?.widget.beginDragFromOutside(e)) return;
       panning = true;
       panningPointerId = e.pointerId;
       scrollStartLeft = canvasViewport.scrollLeft;

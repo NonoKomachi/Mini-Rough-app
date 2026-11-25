@@ -274,6 +274,30 @@ export class CanvasWidget {
     this.touchEditingEnabled = enabled;
   }
 
+  /** 図形/選択範囲ツールで、このキャンバスの外から始まったドラッグを引き継ぐ — main.ts側の
+   * #canvas-viewportレベルのポインターハンドラ(通常はキャンバス外=バリエーション表示領域の
+   * パン)から、アクティブなバリエーションに対して呼ばれる(ユーザー要望: 図形/選択範囲は
+   * キャンバス外から/へのドラッグも許可するが、描かれる図形や選択範囲自体はキャンバス内に
+   * クリップされたままで良い — 各ツール側の実装が既にそうなっている)。通常の
+   * onPointerDown(キャンバス上で始まった場合)のDragTool分岐と同じ処理を行う。他のツール
+   * (鉛筆等の描画ツール、スポイト等)では何もせずfalseを返す — それらは引き続きキャンバス上で
+   * 始めた場合のみ描ける。 */
+  beginDragFromOutside(e: PointerEvent): boolean {
+    if (!isDragTool(this.tool) || (this.tool.kind !== "shape" && this.tool.kind !== "selection")) return false;
+    if (e.pointerType === "touch") this.activeTouchPointerIds.add(e.pointerId);
+    if (!this.isEditablePointer(e)) {
+      if (e.pointerType === "touch") this.activeTouchPointerIds.delete(e.pointerId);
+      return false;
+    }
+    const { x, y } = this.toDocCoords(e.clientX, e.clientY);
+    this.onBeforeStroke?.();
+    this.visible.setPointerCapture(e.pointerId);
+    this.isDrawing = true;
+    this.tool.begin(this.doc, x, y);
+    this.render();
+    return true;
+  }
+
   private onPointerDown = (e: PointerEvent): void => {
     // 右クリック(button===2、中クリック等も含む)は常にonContextMenu側のスポイト専用にする —
     // ボタン種別を見ずに通していたため、右クリックでも現在のツール(鉛筆・消しゴム・バケツ等)の
