@@ -1,5 +1,6 @@
 import { RasterLayer } from "../document";
 import { RGBA } from "./tool";
+import { SelectionMask } from "../selection";
 
 /**
  * Per-stroke alpha coverage mask (0..1), max-combined across dabs. Keeping this separate
@@ -59,18 +60,23 @@ export class StrokeCoverage {
   }
 }
 
-/** Recomposites `color` over `preStrokePixels` using `coverage` as the per-pixel alpha, writing into layer.pixels. */
+/** Recomposites `color` over `preStrokePixels` using `coverage` as the per-pixel alpha, writing
+ * into layer.pixels. `mask`(選択範囲、あれば)の外は常にcoverageを0扱いし、preStrokePixelsの
+ * ままにする — 全ピクセルを毎回復元→再描画し直す都合上(stampの都度ではなくここ1箇所で)選択
+ * 範囲の外側をクリップするのが最も簡単で確実。 */
 export function applyColorStroke(
   layer: RasterLayer,
   preStrokePixels: Uint8ClampedArray,
   coverage: Float32Array,
   color: RGBA,
-  opacityScale: number
+  opacityScale: number,
+  mask?: SelectionMask | null
 ): void {
   const colorA = color[3] / 255;
   for (let i = 0; i < coverage.length; i++) {
     const p = i * 4;
-    const srcA = Math.min(1, coverage[i] * opacityScale) * colorA;
+    const covered = mask && !mask[i] ? 0 : coverage[i];
+    const srcA = Math.min(1, covered * opacityScale) * colorA;
     if (srcA <= 0) {
       layer.pixels[p] = preStrokePixels[p];
       layer.pixels[p + 1] = preStrokePixels[p + 1];
@@ -94,16 +100,19 @@ export function applyColorStroke(
   }
 }
 
-/** Reduces alpha of `preStrokePixels` by `coverage`, writing into layer.pixels. RGB is left untouched. */
+/** Reduces alpha of `preStrokePixels` by `coverage`, writing into layer.pixels. RGB is left
+ * untouched. `mask`の外は常にcoverageを0扱いし(消えない)、applyColorStrokeと同じ理由。 */
 export function applyEraseStroke(
   layer: RasterLayer,
   preStrokePixels: Uint8ClampedArray,
   coverage: Float32Array,
-  opacityScale: number
+  opacityScale: number,
+  mask?: SelectionMask | null
 ): void {
   for (let i = 0; i < coverage.length; i++) {
     const p = i * 4;
-    const erase = Math.min(1, coverage[i] * opacityScale);
+    const covered = mask && !mask[i] ? 0 : coverage[i];
+    const erase = Math.min(1, covered * opacityScale);
     const preA = preStrokePixels[p + 3] / 255;
     layer.pixels[p] = preStrokePixels[p];
     layer.pixels[p + 1] = preStrokePixels[p + 1];

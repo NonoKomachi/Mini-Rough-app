@@ -1,7 +1,8 @@
-import { RasterLayer } from "../document";
+import { Document, RasterLayer } from "../document";
 import { RGBA, StrokeTool } from "./tool";
 import { StrokeCoverage, applyColorStroke, applyEraseStroke } from "./stroke-buffer";
 import { pressureToSize, applyPressureSensitivity } from "./pressure";
+import { maskHasSelection } from "../selection";
 
 /** Same soft edge as BrushTool, but pressure also drives per-dab opacity (light touch = more transparent). */
 export class TransparentBrushTool implements StrokeTool {
@@ -16,16 +17,16 @@ export class TransparentBrushTool implements StrokeTool {
   private preStroke: Uint8ClampedArray | null = null;
   private last: { x: number; y: number } | null = null;
 
-  beginStroke(layer: RasterLayer, x: number, y: number, pressure: number): void {
+  beginStroke(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     this.coverage = new StrokeCoverage(layer.width, layer.height);
     this.preStroke = layer.pixels.slice();
     this.last = { x, y };
-    this.dab(layer, x, y, pressure);
+    this.dab(layer, x, y, pressure, doc);
   }
 
-  continueStroke(layer: RasterLayer, x: number, y: number, pressure: number): void {
+  continueStroke(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     if (!this.coverage || !this.preStroke || !this.last) {
-      this.beginStroke(layer, x, y, pressure);
+      this.beginStroke(layer, x, y, pressure, doc);
       return;
     }
     const dx = x - this.last.x;
@@ -34,7 +35,7 @@ export class TransparentBrushTool implements StrokeTool {
     const steps = Math.max(1, Math.ceil(dist / 0.5));
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
-      this.dab(layer, this.last.x + dx * t, this.last.y + dy * t, pressure);
+      this.dab(layer, this.last.x + dx * t, this.last.y + dy * t, pressure, doc);
     }
     this.last = { x, y };
   }
@@ -45,16 +46,17 @@ export class TransparentBrushTool implements StrokeTool {
     this.last = null;
   }
 
-  private dab(layer: RasterLayer, x: number, y: number, pressure: number): void {
+  private dab(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     const sizePressure = applyPressureSensitivity(pressure, this.pressureSensitivity);
     const radius = pressureToSize(this.size, sizePressure) / 2;
     const intensity = applyPressureSensitivity(pressure, this.opacityPressureSensitivity);
     this.coverage!.stampSoftCircle(x, y, radius, intensity);
+    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
     // "Transparent color" (alpha 0) means erase-with-this-shape rather than a (no-op) transparent paint.
     if (this.color[3] === 0) {
-      applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1);
+      applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1, mask);
     } else {
-      applyColorStroke(layer, this.preStroke!, this.coverage!.data, this.color, 1);
+      applyColorStroke(layer, this.preStroke!, this.coverage!.data, this.color, 1, mask);
     }
   }
 }

@@ -1,7 +1,8 @@
-import { RasterLayer } from "../document";
+import { Document, RasterLayer } from "../document";
 import { StrokeTool } from "./tool";
 import { StrokeCoverage, applyEraseStroke } from "./stroke-buffer";
 import { pressureToSize, applyPressureSensitivity } from "./pressure";
+import { maskHasSelection } from "../selection";
 
 /** Hard edge, pressure drives size only (always erases to full transparency within coverage). */
 export class EraserTool implements StrokeTool {
@@ -13,16 +14,16 @@ export class EraserTool implements StrokeTool {
   private preStroke: Uint8ClampedArray | null = null;
   private last: { x: number; y: number } | null = null;
 
-  beginStroke(layer: RasterLayer, x: number, y: number, pressure: number): void {
+  beginStroke(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     this.coverage = new StrokeCoverage(layer.width, layer.height);
     this.preStroke = layer.pixels.slice();
     this.last = { x, y };
-    this.dab(layer, x, y, pressure);
+    this.dab(layer, x, y, pressure, doc);
   }
 
-  continueStroke(layer: RasterLayer, x: number, y: number, pressure: number): void {
+  continueStroke(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     if (!this.coverage || !this.preStroke || !this.last) {
-      this.beginStroke(layer, x, y, pressure);
+      this.beginStroke(layer, x, y, pressure, doc);
       return;
     }
     const dx = x - this.last.x;
@@ -31,7 +32,7 @@ export class EraserTool implements StrokeTool {
     const steps = Math.max(1, Math.ceil(dist / 0.5));
     for (let i = 1; i <= steps; i++) {
       const t = i / steps;
-      this.dab(layer, this.last.x + dx * t, this.last.y + dy * t, pressure);
+      this.dab(layer, this.last.x + dx * t, this.last.y + dy * t, pressure, doc);
     }
     this.last = { x, y };
   }
@@ -42,10 +43,11 @@ export class EraserTool implements StrokeTool {
     this.last = null;
   }
 
-  private dab(layer: RasterLayer, x: number, y: number, pressure: number): void {
+  private dab(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void {
     const effectivePressure = applyPressureSensitivity(pressure, this.pressureSensitivity);
     const radius = pressureToSize(this.size, effectivePressure) / 2;
     this.coverage!.stampHardCircle(x, y, radius, 1);
-    applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1);
+    const mask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    applyEraseStroke(layer, this.preStroke!, this.coverage!.data, 1, mask);
   }
 }
