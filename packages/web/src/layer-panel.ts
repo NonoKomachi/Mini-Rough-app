@@ -180,7 +180,7 @@ export class LayerPanel {
 
     this.alphaLockBtn = document.createElement("button");
     this.alphaLockBtn.innerHTML = ALPHA_LOCK_ICON_SVG;
-    this.alphaLockBtn.title = "透明ピクセルをロック(既に不透明な部分にしか描画/塗りつぶしできなくなります)";
+    this.alphaLockBtn.title = "透明ピクセルをロック(透明な部分には一切描画/塗りつぶしできなくなります)";
     this.alphaLockBtn.addEventListener("click", () => {
       const node = this.activeNode();
       if (!node || node.kind !== "layer") return;

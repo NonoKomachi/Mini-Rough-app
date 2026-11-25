@@ -2,7 +2,7 @@ import { Document, RasterLayer } from "../document";
 import { RGBA, StrokeTool } from "./tool";
 import { setPixel } from "./raster-utils";
 import { composeDocument } from "../rendering";
-import { SelectionMask, maskHasSelection, alphaAsMask } from "../selection";
+import { SelectionMask, maskHasSelection, combineMasks, alphaAsMask } from "../selection";
 
 function colorsClose(a: RGBA, b: RGBA, tolerance: number): boolean {
   return (
@@ -20,9 +20,8 @@ function readPixel(pixels: Uint8ClampedArray, width: number, x: number, y: numbe
 
 /** `referencePixels`の色でマッチング判定しつつ、実際の塗りは常に`layer`へ書く — 「他レイヤーを
  * 参照」(BucketFillTool.sampleAllLayers)が有効な時はdoc全体の合成結果を参照元として渡す。
- * `wallMask`(選択範囲、あれば)の外側は壁として扱い、そこへは一切広がらない/塗らない — 開始点
- * 自体が選択範囲の外にある場合も何もしない。`writeOnlyMask`(透明度ロック、あれば)は壁には
- * ならない(その先の色が一致する範囲まで広がりは続く)が、既に不透明な場所にしか実際には塗らない。 */
+ * `wallMask`(選択範囲・透明ピクセルのロックの合成、あれば)の外側は壁として扱い、そこで
+ * 途切れて止まる(そこへは一切広がらない/塗らない) — 開始点自体が壁の外にある場合も何もしない。 */
 function floodFill(
   layer: RasterLayer,
   referencePixels: Uint8ClampedArray,
@@ -30,8 +29,7 @@ function floodFill(
   startY: number,
   fillColor: RGBA,
   tolerance: number,
-  wallMask: SelectionMask | null,
-  writeOnlyMask: SelectionMask | null
+  wallMask: SelectionMask | null
 ): void {
   const { width, height } = layer;
   if (startX < 0 || startY < 0 || startX >= width || startY >= height) return;
@@ -51,7 +49,7 @@ function floodFill(
     if (wallMask && !wallMask[idx]) continue;
     if (!colorsClose(readPixel(referencePixels, width, x, y), target, tolerance)) continue;
     visited[idx] = 1;
-    if (!writeOnlyMask || writeOnlyMask[idx]) setPixel(layer, x, y, fillColor);
+    setPixel(layer, x, y, fillColor);
     stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
   }
 }
@@ -66,9 +64,9 @@ export class BucketFillTool implements StrokeTool {
 
   beginStroke(layer: RasterLayer, x: number, y: number, _pressure: number, doc?: Document): void {
     const reference = this.sampleAllLayers && doc ? composeDocument(doc) : layer.pixels;
-    const wallMask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
-    const writeOnlyMask = layer.alphaLocked ? alphaAsMask(layer.pixels) : null;
-    floodFill(layer, reference, Math.floor(x), Math.floor(y), this.color, this.tolerance, wallMask, writeOnlyMask);
+    const selMask = doc && maskHasSelection(doc.selectionMask) ? doc.selectionMask : null;
+    const alphaMask = layer.alphaLocked ? alphaAsMask(layer.pixels) : null;
+    floodFill(layer, reference, Math.floor(x), Math.floor(y), this.color, this.tolerance, combineMasks(selMask, alphaMask));
   }
 
   continueStroke(_layer: RasterLayer, _x: number, _y: number, _pressure: number): void {

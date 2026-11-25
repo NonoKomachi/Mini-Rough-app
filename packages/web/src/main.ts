@@ -23,6 +23,10 @@ import {
   resizeDocumentMini,
   maskHasSelection,
   fillWithColor,
+  combineMasks,
+  alphaAsMask,
+  combineSelectionMasks,
+  SelectionCombineMode,
   getMaskBounds,
   flipRegionHorizontal,
   flipRegionVertical,
@@ -102,6 +106,18 @@ const tools = {
   gradient: new GradientTool(),
   shape: new ShapeTool()
 };
+
+// 選択範囲系の4ツール(矩形/楕円/投げ縄/自動選択)と「レイヤーから選択範囲」が共通で使う
+// 新規/追加/除外/共通モード。CLIP STUDIOのツールオプションと同じく、選んでいるツールに
+// 関係なく常に1つの設定(切り替えても引き継がれる)。
+let selectionCombineMode: SelectionCombineMode = "new";
+function applySelectionCombineMode(mode: SelectionCombineMode): void {
+  selectionCombineMode = mode;
+  tools.rectSelect.mode = mode;
+  tools.ellipseSelect.mode = mode;
+  tools.lassoSelect.mode = mode;
+  tools.autoSelect.mode = mode;
+}
 
 type ToolId = keyof typeof tools;
 const REGULAR_TOOL_ORDER: ToolId[] = ["pencil", "brush", "transparentBrush", "dotPen", "eraser", "bucketFill", "eyedropper", "move"];
@@ -779,6 +795,19 @@ function selectAllActive(): void {
   active.widget.render();
 }
 
+/** 「レイヤーから選択範囲」: 現在のレイヤーの不透明なピクセルをそのまま選択範囲にする。
+ * 選択範囲ツール(矩形/楕円/投げ縄/自動選択)と同じ新規/追加/除外/共通の4モード
+ * (selectionCombineMode)を適用する — 単体のアクションだがツールと同じ合成設定に揃える。 */
+function selectFromLayer(): void {
+  const active = requireActiveVariant();
+  const layer = active?.doc.getActiveLayer();
+  if (!active || !layer) return;
+  const fresh = alphaAsMask(layer.pixels);
+  const baseline = active.doc.selectionMask ? active.doc.selectionMask.slice() : null;
+  active.doc.selectionMask = combineSelectionMasks(baseline, fresh, selectionCombineMode);
+  active.widget.render();
+}
+
 // ---------------------------------------------------------------------------
 // Edit actions (shared by menu items, toolbar buttons, and keyboard shortcuts)
 // ---------------------------------------------------------------------------
@@ -806,8 +835,9 @@ function fillActiveLayer(): void {
   const layer = active?.doc.getActiveLayer();
   if (!active || !layer) return;
   grid.pushUndoForActive();
-  const mask = maskHasSelection(active.doc.selectionMask) ? active.doc.selectionMask : null;
-  fillWithColor(layer, mask, currentSlotColor());
+  const selMask = maskHasSelection(active.doc.selectionMask) ? active.doc.selectionMask : null;
+  const alphaMask = layer.alphaLocked ? alphaAsMask(layer.pixels) : null;
+  fillWithColor(layer, combineMasks(selMask, alphaMask), currentSlotColor());
   active.widget.render();
 }
 
@@ -1620,6 +1650,7 @@ addMenuButton("編集", (container, m) => {
 addMenuButton("選択範囲", (container, m) => {
   m.addItem(container, "解除", () => deselectActive(), "Ctrl+D");
   m.addItem(container, "全選択", () => selectAllActive(), "Ctrl+A");
+  m.addItem(container, "レイヤーから選択範囲", () => selectFromLayer());
 });
 
 addMenuButton("パレット", (container, m) => {
@@ -2024,6 +2055,27 @@ selectionGroupBtn.addEventListener("contextmenu", (e) => {
 });
 toolbarPrimaryGroup.appendChild(selectionGroupBtn);
 
+// 選択範囲系4ツール共通の新規/追加/除外/共通モード(selectionCombineMode参照)。
+const selectionModeSelect = document.createElement("select");
+selectionModeSelect.className = "selection-mode-select";
+const selectionModeOptions: { value: SelectionCombineMode; label: string }[] = [
+  { value: "new", label: "新規" },
+  { value: "add", label: "追加" },
+  { value: "subtract", label: "除外" },
+  { value: "intersect", label: "共通" }
+];
+for (const opt of selectionModeOptions) {
+  const el = document.createElement("option");
+  el.value = opt.value;
+  el.textContent = opt.label;
+  selectionModeSelect.appendChild(el);
+}
+selectionModeSelect.addEventListener("change", () => {
+  applySelectionCombineMode(selectionModeSelect.value as SelectionCombineMode);
+});
+selectionModeSelect.style.display = "none";
+toolbarConditionalGroup.appendChild(selectionModeSelect);
+
 const gradientBtn = document.createElement("button");
 gradientBtn.className = "toolbar-icon-btn";
 gradientBtn.innerHTML = toolIcons.gradient;
@@ -2294,6 +2346,8 @@ function selectTool(id: ToolId): void {
     toolButtons[toolId]?.classList.toggle("active", toolId === id);
   }
   selectionGroupBtn.classList.toggle("active", selectionToolIds.includes(id));
+  selectionModeSelect.style.display = selectionToolIds.includes(id) ? "" : "none";
+  if (selectionToolIds.includes(id)) selectionModeSelect.value = selectionCombineMode;
   gradientBtn.classList.toggle("active", id === "gradient");
   gradientPairSelect.style.display = id === "gradient" ? "" : "none";
   shapeGroupBtn.classList.toggle("active", id === "shape");

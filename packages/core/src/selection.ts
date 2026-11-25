@@ -14,8 +14,32 @@ export function maskHasSelection(mask: SelectionMask | null): boolean {
   return mask.some((v) => v !== 0);
 }
 
+/** 選択範囲ツール(矩形/楕円/投げ縄/自動選択)と「レイヤーから選択範囲」が共通で使う、
+ * CLIP STUDIOの「新規選択範囲」「選択範囲に追加」「選択範囲から削除」「選択範囲との共通範囲」
+ * と同じ4種の合成モード。 */
+export type SelectionCombineMode = "new" | "add" | "subtract" | "intersect";
+
+/** `baseline`(操作開始前の選択範囲、無ければ「全く選ばれていない」扱い)と`fresh`(今回
+ * ドラッグ/生成した図形・範囲)を`mode`に従って合成する。`mode`が"new"の時は`baseline`を
+ * 無視して`fresh`をそのまま返す(常に新しい配列を割り当てずに済ませるため)。 */
+export function combineSelectionMasks(baseline: SelectionMask | null, fresh: SelectionMask, mode: SelectionCombineMode): SelectionMask {
+  if (mode === "new") return fresh;
+  if (!baseline) {
+    // 追加 = 何もない状態への追加 = freshそのまま。削除/共通 = 何もない状態からは何も残らない。
+    return mode === "add" ? fresh : new Uint8Array(fresh.length);
+  }
+  const result = new Uint8Array(fresh.length);
+  for (let i = 0; i < fresh.length; i++) {
+    const b = baseline[i] !== 0;
+    const f = fresh[i] !== 0;
+    const selected = mode === "add" ? b || f : mode === "subtract" ? b && !f : b && f;
+    result[i] = selected ? 255 : 0;
+  }
+  return result;
+}
+
 /** `a`と`b`の論理積。どちらかがnullならもう片方をそのまま返す(新規配列を作らない) —
- * 選択範囲と「透明度をロック」を同時に満たす必要があるツールが、既存のsetPixel/
+ * 選択範囲と「透明ピクセルのロック」を同時に満たす必要があるツールが、既存のsetPixel/
  * applyColorStroke等の単一mask引数へそのまま渡せる1つのmaskにまとめるために使う。 */
 export function combineMasks(a: SelectionMask | null, b: SelectionMask | null): SelectionMask | null {
   if (!a) return b;

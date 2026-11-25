@@ -35,5 +35,5 @@ export { snapshotLayers, restoreLayers, UndoStack } from "./history";
 export type { LayerSnapshot } from "./history";
 export { resizeDocumentMini, reconcileDocumentResolution } from "./resize";
 export { applyPressureSensitivity } from "./tools/pressure";
-export type { SelectionMask } from "./selection";
-export { maskHasSelection, fillWithColor, getMaskBounds, combineMasks, alphaAsMask } from "./selection";
+export type { SelectionMask, SelectionCombineMode } from "./selection";
+export { maskHasSelection, fillWithColor, getMaskBounds, combineMasks, alphaAsMask, combineSelectionMasks } from "./selection";
