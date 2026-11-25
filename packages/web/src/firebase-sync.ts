@@ -9,8 +9,7 @@
  */
 import { initializeApp, FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, Auth, User } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc, Firestore } from "firebase/firestore";
-import { getStorage, ref, uploadString, getBytes, FirebaseStorage, StorageError } from "firebase/storage";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, Firestore } from "firebase/firestore";
 
 export interface SyncState {
   /** Firebaseの設定(.env)が揃っているか。 */
@@ -36,7 +35,6 @@ export function isSyncConfigured(): boolean {
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
-let storage: FirebaseStorage | null = null;
 let currentUser: User | null = null;
 // onAuthStateChangedの初回コールバック(前回サインインしていたセッションの復元を含む)が
 // 届くまで解決しないPromise。起動直後はFirebaseの初期化自体が非同期なため、ここを待たずに
@@ -84,13 +82,12 @@ export function waitForAuthReady(): Promise<void> {
  * `onAuthStateChanged`はFirebaseが自前でlocalStorage/IndexedDBに保持しているセッションを
  * 読み、サインイン済みなら(ポップアップ無しで)すぐにリスナーへ反映する — これが
  * Google Drive版との決定的な違い(トークン更新をアプリ側で管理する必要がない)。 */
-function ensureInitialized(): { auth: Auth; db: Firestore; storage: FirebaseStorage } | null {
+function ensureInitialized(): { auth: Auth; db: Firestore } | null {
   if (!isSyncConfigured()) return null;
   if (!app) {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
-    storage = getStorage(app);
     authReadyPromise = new Promise((resolve) => {
       authReadyResolve = resolve;
     });
@@ -101,7 +98,7 @@ function ensureInitialized(): { auth: Auth; db: Firestore; storage: FirebaseStor
       authReadyResolve = null;
     });
   }
-  return { auth: auth!, db: db!, storage: storage! };
+  return { auth: auth!, db: db! };
 }
 // configuredなら起動時に即座に初期化しておく(呼び出し待ちにしない — onAuthStateChangedの
 // 初回コールバックをできるだけ早く発火させ、UIの「未サインイン」表示が一瞬だけ出て
@@ -170,22 +167,45 @@ export function pullSettings<T>(): Promise<T | null> {
   return pullDoc<T>("settings");
 }
 
-/** プロジェクト全体の自動保存JSON。以前はFirestoreの1ドキュメント(上限1MiB)に書いていたが、
- * レイヤー数が多い/大きい完成サイズのプロジェクトでは軽く超えてしまい、保存が常に(無言で)
- * 失敗していた(ユーザー報告: 「今すぐ保存」で初めて失敗が可視化された)。Cloud Storageは
- * 1ファイルあたり数GBまで扱えるため、プロジェクトJSONだけはこちらに保存する
- * (パレット/設定は小さいので従来どおりFirestoreのまま)。 */
-function projectStoragePath(uid: string): string {
-  return `users/${uid}/project.json`;
+/** プロジェクト全体の自動保存JSON。Firestoreの1ドキュメントは最大1MiBまでのため、レイヤー数が
+ * 多い/大きい完成サイズのプロジェクトでは単一ドキュメントに収まらず、保存が常に(無言で)
+ * 失敗していた(ユーザー報告: 「今すぐ保存」で初めて失敗が可視化された)。Cloud Storageへの
+ * 切り替えも検討したが、無料プラン(Spark)では新規にStorageを有効化できず有料プランへの
+ * アップグレードを求められるため見送り — 代わりに、JSON文字列を複数のFirestoreドキュメントに
+ * 分割して保存する(無料プランのままで上限を回避できる)。 */
+const PROJECT_CHUNK_SIZE = 900_000; // 900,000文字。Firestoreの1MiB(=1,048,576バイト)上限に
+// 対して、ドキュメント自体のオーバーヘッド分の余裕を持たせた値(チャンクの中身はbase64/JSON
+// なので1文字=1バイト相当)。
+const PROJECT_CHUNK_PREFIX = "project_chunk_";
+
+function chunkDocName(index: number): string {
+  return `${PROJECT_CHUNK_PREFIX}${index}`;
 }
 
 export async function pushProject(json: string): Promise<boolean> {
   const ctx = ensureInitialized();
   if (!ctx || !currentUser) return false;
+  const uid = currentUser.uid;
   try {
-    await uploadString(ref(ctx.storage, projectStoragePath(currentUser.uid)), json, "raw", {
-      contentType: "application/json"
-    });
+    // 前回保存時のチャンク数を先に読んでおく — 今回がそれより少ない場合、末尾に古いチャンクが
+    // 残ったままだとpullProject側で余計な文字列まで連結してしまうため、後で削除する。
+    const prevManifestSnap = await getDoc(doc(ctx.db, "users", uid, "sync", "project"));
+    const prevChunkCount = (prevManifestSnap.data() as { chunkCount?: number } | undefined)?.chunkCount ?? 0;
+
+    const chunks: string[] = [];
+    for (let i = 0; i < json.length; i += PROJECT_CHUNK_SIZE) {
+      chunks.push(json.slice(i, i + PROJECT_CHUNK_SIZE));
+    }
+    if (chunks.length === 0) chunks.push(""); // 空のプロジェクトでも1個は書く(0チャンクだと判別できない)。
+
+    await Promise.all(chunks.map((chunk, i) => setDoc(doc(ctx.db, "users", uid, "sync", chunkDocName(i)), { data: chunk })));
+    // マニフェスト(チャンク数)はチャンク本体を書き終えた後に更新する — 途中状態をpullProject側に
+    // 読まれても、マニフェストが古いチャンク数のままなら新しいチャンクはまだ参照されない。
+    await setDoc(doc(ctx.db, "users", uid, "sync", "project"), { chunkCount: chunks.length });
+    // 前回より減った分の古いチャンクを後片付け(マニフェスト更新後なので、残っていても
+    // pullProject側からはもう参照されず実害は無い)。
+    const staleIndexes = Array.from({ length: Math.max(0, prevChunkCount - chunks.length) }, (_, i) => chunks.length + i);
+    await Promise.all(staleIndexes.map((i) => deleteDoc(doc(ctx.db, "users", uid, "sync", chunkDocName(i)))));
     return true;
   } catch (err) {
     console.error(err);
@@ -196,13 +216,18 @@ export async function pushProject(json: string): Promise<boolean> {
 export async function pullProject(): Promise<string | null> {
   const ctx = ensureInitialized();
   if (!ctx || !currentUser) return null;
+  const uid = currentUser.uid;
   try {
-    const bytes = await getBytes(ref(ctx.storage, projectStoragePath(currentUser.uid)));
-    return new TextDecoder().decode(bytes);
+    const manifestSnap = await getDoc(doc(ctx.db, "users", uid, "sync", "project"));
+    if (!manifestSnap.exists()) return null;
+    const chunkCount = (manifestSnap.data() as { chunkCount?: number }).chunkCount ?? 0;
+    if (chunkCount <= 0) return null;
+    const chunkSnaps = await Promise.all(
+      Array.from({ length: chunkCount }, (_, i) => getDoc(doc(ctx.db, "users", uid, "sync", chunkDocName(i))))
+    );
+    return chunkSnaps.map((snap) => (snap.data() as { data?: string } | undefined)?.data ?? "").join("");
   } catch (err) {
-    // 一度も保存していない端末では「ファイルが存在しない」エラーになるのが正常系 — それ以外の
-    // エラーだけconsoleに出す。
-    if (!(err instanceof StorageError) || err.code !== "storage/object-not-found") console.error(err);
+    console.error(err);
     return null;
   }
 }
