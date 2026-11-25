@@ -740,7 +740,12 @@ const EDIT_AUTO_SAVE_DELAY_MS = 3000;
 grid.onEdit = () => {
   isDirty = true;
   if (editAutoSaveTimer !== undefined) clearTimeout(editAutoSaveTimer);
-  if (!appSettings.autoSaveEnabled) return;
+  // 「自動保存」設定(appSettings.autoSaveEnabled)は本来「一定周期で実ファイル(.mrk)へ書き込む」
+  // かどうかだけを決めるもの(autoSaveTick内で実ファイル書き込みをその設定で分岐済み)。
+  // ここ(キャッシュ/Firebaseへの安全網保存)を同じ設定でゲートしてしまうと、ユーザーが
+  // 実ファイルへの定期書き込みだけを止めたつもりで、キャッシュ/クラウドへの保存まで
+  // 一切効かなくなってしまう(「自動保存されているはずなのに編集が失われる」不具合の原因) —
+  // ここは常にスケジュールする。
   editAutoSaveTimer = setTimeout(() => {
     editAutoSaveTimer = undefined;
     void autoSaveTick();
@@ -757,10 +762,12 @@ window.addEventListener("beforeunload", (e) => {
 // 先に発火し、かつ非同期処理の完了をブラウザが多少待ってくれるため、ここで実際のキャッシュ
 // 保存を行う — これが無いと、次回の自動保存タイマー(既定5分間隔)が一度も回らないうちに
 // タブを閉じてしまった場合、直前までの編集内容がキャッシュに一切反映されず、再度開いた時に
-// 古い状態まで戻ってしまっていた。
+// 古い状態まで戻ってしまっていた。pagehideはvisibilitychangeが発火しない一部のモバイル/
+// PWA終了パターンでも発火することがあるため、保険として両方に仕込む。
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") void autoSaveTick();
 });
+window.addEventListener("pagehide", () => void autoSaveTick());
 
 // 右クリック(常時)またはスポイトツール自体でクリックした位置の色を、現在アクティブな
 // カラースロット(メイン/サブ)に反映する。透明スロットを選んでいた場合はメインに戻す。
@@ -1099,14 +1106,16 @@ async function saveProjectFileAs(): Promise<void> {
 
 /** 自動保存タイマーの1tick。手動の保存とは違い、File System Access未対応/ハンドル未確立でも
  * 常にキャッシュへは書けるようにする(キャッシュはIndexedDBへの素のJSON保存で、権限も
- * ユーザー操作も不要)。ハンドルがあれば実ファイルにも上書きするが、失敗してもキャッシュへの
- * 保存自体は成立しているので、ここでは諦めてハンドルだけ外す。 */
+ * ユーザー操作も不要)。キャッシュ/Firebaseへの保存は「編集を失わないための安全網」なので
+ * 常に行う — appSettings.autoSaveEnabled(設定の「自動保存」)は実ファイルへの定期書き込み
+ * だけを制御する設定であって、この安全網を止めるものではない。実ファイルへの書き込みが
+ * 失敗してもキャッシュ/Firebase側の保存自体は成立しているので、ここでは諦めてハンドルだけ外す。 */
 async function autoSaveTick(): Promise<void> {
   if (!isDirty) return;
   const json = await buildProjectJson();
   void setCachedProjectSnapshot(json);
   if (getSyncState().signedIn) void pushProject(json);
-  if (currentProjectFileHandle) {
+  if (appSettings.autoSaveEnabled && currentProjectFileHandle) {
     try {
       await writeTextToHandle(currentProjectFileHandle, json);
     } catch (err) {
