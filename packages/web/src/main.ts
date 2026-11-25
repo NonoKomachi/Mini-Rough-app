@@ -2467,6 +2467,18 @@ window.addEventListener("keydown", (e) => {
     return target instanceof Element && target.closest(".doc-canvas") !== null;
   }
 
+  /** `target`が「アクティブなバリエーション以外のタイル」の中にあるか。これがtrueの間は
+   * beginDragFromOutsideを呼んではいけない — 呼ぶとそのタイルを素通りしてアクティブな
+   * バリエーションの描画が始まってしまい(かつポインターキャプチャがアクティブ側のcanvasに
+   * 奪われるため)、このタイルをクリックして選び直すための"click"イベントが発火しなくなる
+   * (「別のバリエーションが選択できなくなった」というユーザー報告の原因)。 */
+  function isInsideOtherTile(target: EventTarget | null): boolean {
+    if (!(target instanceof Element)) return false;
+    const tile = target.closest(".variant-tile");
+    if (!tile) return false;
+    return tile !== grid.getActive()?.tileEl;
+  }
+
   function currentMidpoint(): { x: number; y: number } {
     const pts = Array.from(activePointers.values()).slice(0, 2);
     if (pts.length === 1) return pts[0];
@@ -2483,8 +2495,10 @@ window.addEventListener("keydown", (e) => {
       if (isInsideDocCanvas(e.target)) return; // キャンバス上の1本指は描画に使わせる。
       // キャンバスの外から始めたドラッグも、アクティブなバリエーションへの描画/選択として
       // 引き継がせる(ユーザー要望) — スポイトだけは対象外(widget.beginDragFromOutside側の
-      // 判定)で、その場合はそのまま下のパン(スクロール)に通る。
-      if (grid.getActive()?.widget.beginDragFromOutside(e)) return;
+      // 判定)で、その場合はそのまま下のパン(スクロール)に通る。ただし「別のバリエーションの
+      // タイルの中」(キャンバス以外の余白部分)はそのタイルを選び直すためのクリックに使わせる
+      // 必要があるので、ここでは対象外にする(isInsideOtherTile参照)。
+      if (!isInsideOtherTile(e.target) && grid.getActive()?.widget.beginDragFromOutside(e)) return;
       panning = true;
       panningPointerId = e.pointerId;
       scrollStartLeft = canvasViewport.scrollLeft;
