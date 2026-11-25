@@ -54,6 +54,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { AlertDialog } from "./alert-dialog";
 import { PromptDialog } from "./prompt-dialog";
 import { isPenActive } from "./pen-state";
+import { setupPwaAutoUpdate } from "./pwa-update";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
 import { signIn as signInToSync, signOutUser, getSyncState, onSyncStateChange, isSyncConfigured, waitForAuthReady, pushPalettes, pullPalettes, pushSettings, pullSettings, pushProject, pullProject } from "./firebase-sync";
@@ -2700,6 +2701,10 @@ layerPanelHandle.addEventListener("pointerup", (e) => {
 // ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
+// PWAとして使っている場合、ブラウザ自身の更新チェックの間引き(最大24時間)を回避するため、
+// 明示的なチェックを仕込む(setupPwaAutoUpdate参照) — 頻繁にpushする運用のため、これが無いと
+// 「デプロイは成功しているのにインストール済みのPWAがいつまでも古い内容のまま」になる。
+setupPwaAutoUpdate();
 refreshColorSwatches();
 applyColorToTools(mainColor);
 grid.reset(Document.createDefault(DEFAULT_MINI_WIDTH, DEFAULT_MINI_HEIGHT));
