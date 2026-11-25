@@ -36,6 +36,13 @@ let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 let db: Firestore | null = null;
 let currentUser: User | null = null;
+// onAuthStateChangedの初回コールバック(前回サインインしていたセッションの復元を含む)が
+// 届くまで解決しないPromise。起動直後はFirebaseの初期化自体が非同期なため、ここを待たずに
+// getSyncState().signedInを読むと「実際はサインイン済みなのに、まだ復元が終わっていないだけで
+// falseに見える」瞬間を拾ってしまう(起動時のクラウドからの自動読み込みが race で
+// 空振りする不具合の原因だった)。 */
+let authReadyResolve: (() => void) | null = null;
+let authReadyPromise: Promise<void> = Promise.resolve();
 
 type StateListener = (state: SyncState) => void;
 const listeners = new Set<StateListener>();
@@ -62,6 +69,15 @@ export function getSyncState(): SyncState {
   return currentState();
 }
 
+/** サインイン状態の初回判定(前回セッションの復元、またはサインインしていないことの確定)が
+ * 終わるまで待つ。起動直後にgetSyncState().signedInを読む前に必ずこれをawaitすること —
+ * 設定(.env)が無い場合は即座に解決する。 */
+export function waitForAuthReady(): Promise<void> {
+  if (!isSyncConfigured()) return Promise.resolve();
+  ensureInitialized();
+  return authReadyPromise;
+}
+
 /** 設定(.env)が揃っている場合だけ、モジュール読み込み時に一度だけ初期化する。
  * `onAuthStateChanged`はFirebaseが自前でlocalStorage/IndexedDBに保持しているセッションを
  * 読み、サインイン済みなら(ポップアップ無しで)すぐにリスナーへ反映する — これが
@@ -72,9 +88,14 @@ function ensureInitialized(): { auth: Auth; db: Firestore } | null {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    authReadyPromise = new Promise((resolve) => {
+      authReadyResolve = resolve;
+    });
     onAuthStateChanged(auth, (user) => {
       currentUser = user;
       notify();
+      authReadyResolve?.();
+      authReadyResolve = null;
     });
   }
   return { auth: auth!, db: db! };

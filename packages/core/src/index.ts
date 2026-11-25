@@ -30,7 +30,7 @@ export {
   writeAffineTransform,
   writeFreeTransform
 } from "./tools/transform";
-export type { Point, ExtractedRegion } from "./tools/transform";
+export type { Point, ExtractedRegion, TransformInterpolation } from "./tools/transform";
 export { snapshotLayers, restoreLayers, UndoStack } from "./history";
 export type { LayerSnapshot } from "./history";
 export { resizeDocumentMini, reconcileDocumentResolution } from "./resize";

@@ -97,9 +97,10 @@ export function setPolygonMask(mask: SelectionMask, width: number, height: numbe
 }
 
 /** "自動選択": 4-connected flood fill of pixels close in color/alpha to the clicked pixel — used to
- * grab the blank area enclosed by line art on the active layer, same traversal as BucketFillTool. */
-export function floodFillSelectMask(layer: RasterLayer, startX: number, startY: number, tolerance: number): SelectionMask {
-  const { width, height, pixels } = layer;
+ * grab the blank area enclosed by line art, same traversal as BucketFillTool. `pixels` is normally
+ * the active layer's own buffer, but AutoSelectTool.sampleAllLayers passes the doc's composited
+ * result instead so the detected region can take other (visible) layers' line art into account. */
+export function floodFillSelectMask(width: number, height: number, pixels: Uint8ClampedArray, startX: number, startY: number, tolerance: number): SelectionMask {
   const mask = createEmptyMask(width, height);
   if (startX < 0 || startY < 0 || startX >= width || startY >= height) return mask;
   const i0 = (startY * width + startX) * 4;

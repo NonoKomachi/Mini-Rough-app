@@ -3,8 +3,11 @@ import { Document, RasterLayer } from "../document";
 export type RGBA = [number, number, number, number];
 
 export interface StrokeTool {
-  beginStroke(layer: RasterLayer, x: number, y: number, pressure: number): void;
-  continueStroke(layer: RasterLayer, x: number, y: number, pressure: number): void;
+  /** `doc`は常に渡される(呼び出し元はCanvasWidget) — 現在のレイヤー以外は使わないツールは
+   * 無視してよい。BucketFillToolの「他レイヤーを参照」のように、判定に合成結果が必要な
+   * ツールだけがこれを使う。 */
+  beginStroke(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void;
+  continueStroke(layer: RasterLayer, x: number, y: number, pressure: number, doc?: Document): void;
   endStroke(): void;
 }
 

@@ -216,7 +216,14 @@ export class VariantGrid {
     widget.onRedoGesture = () => this.redoActive();
     this.updateTileSpan(variant);
 
-    tile.addEventListener("click", () => this.setActive(variant.id));
+    // 既にアクティブなタイルをクリックした時は何もしない — ここで無条件にsetActive()を
+    // 呼ぶと、マウスでのドラッグ描画(mousedown→drag→mouseup)の後に発火する"click"イベントの
+    // たびにsetActive()が走り、setActive内部のscrollTileToCenter()で表示位置がキャンバス中央へ
+    // 戻ってしまっていた(ズームインして中央からずらして描いているときに特に目立つ不具合)。
+    // 別のバリエーションへの切替時は従来どおり中央寄せする。
+    tile.addEventListener("click", () => {
+      if (this.activeId !== variant.id) this.setActive(variant.id);
+    });
 
     this.variants.push(variant);
     // Labels always reflect creation order among the CURRENTLY remaining variants (#1, #2, ...)

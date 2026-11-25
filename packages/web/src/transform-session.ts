@@ -3,6 +3,7 @@ import {
   RasterLayer,
   ExtractedRegion,
   Point,
+  TransformInterpolation,
   extractRegion,
   clearRegionFromLayer,
   writeAffineTransform,
@@ -51,6 +52,9 @@ export class TransformSession {
 
   /** free mode state: the region's 4 corners (TL,TR,BR,BL) in document space. */
   corners: [Point, Point, Point, Point];
+
+  /** ハード(ニアレストネイバー)かバイリニアか。両モード共通(scaleRotate/free)。 */
+  interpolation: TransformInterpolation = "bilinear";
 
   onChange: (() => void) | null = null;
 
@@ -105,9 +109,9 @@ export class TransformSession {
     this.layer.pixels.set(this.baseline);
     this.doc.selectionMask = this.originalSelectionMask ? this.originalSelectionMask.slice() : null;
     if (this.mode === "free") {
-      writeFreeTransform(this.doc, this.layer, this.region, this.corners);
+      writeFreeTransform(this.doc, this.layer, this.region, this.corners, this.interpolation);
     } else {
-      writeAffineTransform(this.doc, this.layer, this.region, this.center, this.scaleX, this.scaleY, this.rotation);
+      writeAffineTransform(this.doc, this.layer, this.region, this.center, this.scaleX, this.scaleY, this.rotation, this.interpolation);
     }
     this.onChange?.();
   }

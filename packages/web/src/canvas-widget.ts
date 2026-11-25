@@ -274,16 +274,15 @@ export class CanvasWidget {
     this.touchEditingEnabled = enabled;
   }
 
-  /** 図形/選択範囲ツールで、このキャンバスの外から始まったドラッグを引き継ぐ — main.ts側の
-   * #canvas-viewportレベルのポインターハンドラ(通常はキャンバス外=バリエーション表示領域の
-   * パン)から、アクティブなバリエーションに対して呼ばれる(ユーザー要望: 図形/選択範囲は
-   * キャンバス外から/へのドラッグも許可するが、描かれる図形や選択範囲自体はキャンバス内に
-   * クリップされたままで良い — 各ツール側の実装が既にそうなっている)。通常の
-   * onPointerDown(キャンバス上で始まった場合)のDragTool分岐と同じ処理を行う。他のツール
-   * (鉛筆等の描画ツール、スポイト等)では何もせずfalseを返す — それらは引き続きキャンバス上で
-   * 始めた場合のみ描ける。 */
+  /** このキャンバスの外から始まったドラッグを引き継ぐ — main.ts側の#canvas-viewportレベルの
+   * ポインターハンドラ(通常はキャンバス外=バリエーション表示領域のパン)から、アクティブな
+   * バリエーションに対して呼ばれる(ユーザー要望: 図形/選択範囲だけでなく鉛筆/ブラシ等の通常の
+   * 描画ツールでも、キャンバス外から/へのドラッグを描画として引き継いでほしい — 実際に描かれる
+   * 内容自体はキャンバス内にクリップされたままで良い。各ツール側の実装が既にそうなっている)。
+   * 通常のonPointerDown(キャンバス上で始まった場合)と同じ分岐を行う。スポイト(PickTool)だけは
+   * 対象外 — 右クリックでの一時スポイトが別経路で既に常時使えるため、ここで拾う必要がない。 */
   beginDragFromOutside(e: PointerEvent): boolean {
-    if (!isDragTool(this.tool) || (this.tool.kind !== "shape" && this.tool.kind !== "selection")) return false;
+    if (isPickTool(this.tool)) return false;
     if (e.pointerType === "touch") this.activeTouchPointerIds.add(e.pointerId);
     if (!this.isEditablePointer(e)) {
       if (e.pointerType === "touch") this.activeTouchPointerIds.delete(e.pointerId);
@@ -293,7 +292,18 @@ export class CanvasWidget {
     this.onBeforeStroke?.();
     this.visible.setPointerCapture(e.pointerId);
     this.isDrawing = true;
-    this.tool.begin(this.doc, x, y);
+    if (isDragTool(this.tool)) {
+      this.tool.begin(this.doc, x, y);
+    } else {
+      const layer = this.getPaintTarget();
+      if (!layer) {
+        this.isDrawing = false;
+        this.visible.releasePointerCapture(e.pointerId);
+        return false;
+      }
+      const pressure = e.pressure > 0 ? e.pressure : 1;
+      this.tool.beginStroke(layer, x, y, pressure, this.doc);
+    }
     this.render();
     return true;
   }
@@ -339,7 +349,7 @@ export class CanvasWidget {
     this.visible.setPointerCapture(e.pointerId);
     this.isDrawing = true;
     const pressure = e.pressure > 0 ? e.pressure : 1;
-    this.tool.beginStroke(layer, x, y, pressure);
+    this.tool.beginStroke(layer, x, y, pressure, this.doc);
     this.render();
   };
 
@@ -363,7 +373,7 @@ export class CanvasWidget {
     const layer = this.getPaintTarget();
     if (!layer) return;
     const pressure = e.pressure > 0 ? e.pressure : 1;
-    this.tool.continueStroke(layer, x, y, pressure);
+    this.tool.continueStroke(layer, x, y, pressure, this.doc);
     this.render();
   };
 

@@ -56,7 +56,7 @@ import { PromptDialog } from "./prompt-dialog";
 import { isPenActive } from "./pen-state";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
-import { signIn as signInToSync, signOutUser, getSyncState, onSyncStateChange, isSyncConfigured, pushPalettes, pullPalettes, pushSettings, pullSettings, pushProject, pullProject } from "./firebase-sync";
+import { signIn as signInToSync, signOutUser, getSyncState, onSyncStateChange, isSyncConfigured, waitForAuthReady, pushPalettes, pullPalettes, pushSettings, pullSettings, pushProject, pullProject } from "./firebase-sync";
 import {
   ProjectFileHandleLike,
   isFileSystemAccessSupported,
@@ -1218,6 +1218,11 @@ async function tryAutoRestoreOnStartup(): Promise<void> {
   // 場合だけ、クラウドの自動保存ファイルを試す — 別端末で初めて開いた時に前回の続きを
   // 見られるようにするための経路。ローカルに何かあるケースでは絶対に触れない(クラウドの古い
   // 内容で今の作業を上書きしてしまわないように)。
+  // signedInを見る前に、Firebaseの起動時サインイン状態復元(前回ログインの読み込み)が
+  // 終わるのを待つ — これを待たずに読むと、復元が終わっていないだけで実際はサインイン済み
+  // なのにfalseに見えてしまい、本来読み込めるはずのクラウドの編集中データが無言で
+  // 読み込まれない不具合があった。
+  await waitForAuthReady();
   if (getSyncState().signedIn) {
     const cloudJson = await pullProject();
     if (cloudJson) {
@@ -2138,6 +2143,35 @@ shapeOptionsGroup.appendChild(shapeAngleStepInput);
 shapeOptionsGroup.style.display = "none";
 toolbarConditionalGroup.appendChild(shapeOptionsGroup);
 
+// 塗りつぶし/自動選択の「他レイヤーを参照」オプション(CLIP STUDIO相当) — チェックを入れると
+// 全レイヤーを合成した見た目で領域判定するようになる(他レイヤーの線もまたがない)。塗り/選択
+// 自体は常に現在のレイヤーのみに作用する。bucketFill/autoSelectはそれぞれ別インスタンスの
+// 設定を持つので、チェックボックスは選んでいるツールの方だけを読み書きする。
+const referenceAllLayersLabel = document.createElement("label");
+referenceAllLayersLabel.className = "reference-all-layers-label";
+const referenceAllLayersCheckbox = document.createElement("input");
+referenceAllLayersCheckbox.type = "checkbox";
+referenceAllLayersCheckbox.addEventListener("change", () => {
+  if (activeId === "bucketFill") tools.bucketFill.sampleAllLayers = referenceAllLayersCheckbox.checked;
+  else if (activeId === "autoSelect") tools.autoSelect.sampleAllLayers = referenceAllLayersCheckbox.checked;
+});
+referenceAllLayersLabel.appendChild(referenceAllLayersCheckbox);
+referenceAllLayersLabel.appendChild(document.createTextNode("他レイヤーを参照"));
+referenceAllLayersLabel.style.display = "none";
+toolbarConditionalGroup.appendChild(referenceAllLayersLabel);
+
+function updateReferenceAllLayersUI(): void {
+  if (activeId === "bucketFill") {
+    referenceAllLayersLabel.style.display = "";
+    referenceAllLayersCheckbox.checked = tools.bucketFill.sampleAllLayers;
+  } else if (activeId === "autoSelect") {
+    referenceAllLayersLabel.style.display = "";
+    referenceAllLayersCheckbox.checked = tools.autoSelect.sampleAllLayers;
+  } else {
+    referenceAllLayersLabel.style.display = "none";
+  }
+}
+
 const penSizeGroup = document.createElement("div");
 penSizeGroup.className = "pen-size-group";
 const sizeSlider = document.createElement("input");
@@ -2256,6 +2290,7 @@ function selectTool(id: ToolId): void {
   shapeOptionsGroup.style.display = id === "shape" ? "" : "none";
   if (id === "shape") updateShapeOptionsUI();
   updatePenSizeUI();
+  updateReferenceAllLayersUI();
 }
 
 // 幅が足りない時は、toolbarConditionalGroup(ブラシサイズ・グラデーションのペア選択・配色)
@@ -2436,9 +2471,9 @@ window.addEventListener("keydown", (e) => {
     activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (activePointers.size === 1) {
       if (isInsideDocCanvas(e.target)) return; // キャンバス上の1本指は描画に使わせる。
-      // 図形/選択範囲ツールは、キャンバスの外から始めたドラッグもアクティブなバリエーションへの
-      // 描画/選択として引き継がせる(ユーザー要望) — それ以外のツールでは何も起きず、
-      // 下のパン(スクロール)にそのまま通す。
+      // キャンバスの外から始めたドラッグも、アクティブなバリエーションへの描画/選択として
+      // 引き継がせる(ユーザー要望) — スポイトだけは対象外(widget.beginDragFromOutside側の
+      // 判定)で、その場合はそのまま下のパン(スクロール)に通る。
       if (grid.getActive()?.widget.beginDragFromOutside(e)) return;
       panning = true;
       panningPointerId = e.pointerId;

@@ -95,7 +95,21 @@ function isInsideRegion(region: ExtractedRegion, lx: number, ly: number): boolea
   return lx >= 0 && ly >= 0 && lx < region.w && ly < region.h;
 }
 
-function sampleRegionRGBA(region: ExtractedRegion, lx: number, ly: number): [number, number, number, number] {
+/** "ハード"(ニアレストネイバー、アンチエイリアスが付かない)か"バイリニア"(滑らか)かを
+ * 選べる、変形(拡大縮小/回転/自由変形)専用の補間方式。CLIP STUDIOの「拡大・縮小・回転」
+ * ダイアログの補間設定に相当する(このアプリでは2択に絞っている)。 */
+export type TransformInterpolation = "nearest" | "bilinear";
+
+function sampleRegionRGBANearest(region: ExtractedRegion, lx: number, ly: number): [number, number, number, number] {
+  const x = Math.floor(lx);
+  const y = Math.floor(ly);
+  if (x < 0 || y < 0 || x >= region.w || y >= region.h) return [0, 0, 0, 0];
+  const idx = (y * region.w + x) * 4;
+  return [region.pixels[idx], region.pixels[idx + 1], region.pixels[idx + 2], region.pixels[idx + 3]];
+}
+
+function sampleRegionRGBA(region: ExtractedRegion, lx: number, ly: number, interpolation: TransformInterpolation): [number, number, number, number] {
+  if (interpolation === "nearest") return sampleRegionRGBANearest(region, lx, ly);
   const r = bilinearChannel(region.pixels, region.w, region.h, 0, lx, ly);
   const g = bilinearChannel(region.pixels, region.w, region.h, 1, lx, ly);
   const b = bilinearChannel(region.pixels, region.w, region.h, 2, lx, ly);
@@ -202,7 +216,8 @@ export function writeAffineTransform(
   center: Point,
   scaleX: number,
   scaleY: number,
-  rotationRad: number
+  rotationRad: number,
+  interpolation: TransformInterpolation = "bilinear"
 ): void {
   const cos = Math.cos(-rotationRad);
   const sin = Math.sin(-rotationRad);
@@ -220,7 +235,7 @@ export function writeAffineTransform(
       const lx = rx / safeScaleX + localCenterX;
       const ly = ry / safeScaleY + localCenterY;
       if (!isInsideRegion(region, lx, ly)) continue;
-      const [r, g, b, a] = sampleRegionRGBA(region, lx, ly);
+      const [r, g, b, a] = sampleRegionRGBA(region, lx, ly, interpolation);
       const idx = py * doc.width + px;
       const pi = idx * 4;
       layer.pixels[pi] = r;
@@ -287,7 +302,13 @@ function pointInTriangle(pt: Point, v1: Point, v2: Point, v3: Point): boolean {
  * positions. Implemented as two source-space triangles, each an independent affine map (the
  * standard CLIP-STUDIO-style "bilinear via triangle pair" approach) — exact on the shared
  * diagonal, so there's no seam between the two triangles. */
-export function writeFreeTransform(doc: Document, layer: RasterLayer, region: ExtractedRegion, corners: [Point, Point, Point, Point]): void {
+export function writeFreeTransform(
+  doc: Document,
+  layer: RasterLayer,
+  region: ExtractedRegion,
+  corners: [Point, Point, Point, Point],
+  interpolation: TransformInterpolation = "bilinear"
+): void {
   const [tl, tr, br, bl] = corners;
   const regionTL: Point = { x: 0, y: 0 };
   const regionTR: Point = { x: region.w, y: 0 };
@@ -317,7 +338,7 @@ export function writeFreeTransform(doc: Document, layer: RasterLayer, region: Ex
         continue;
       }
       if (!isInsideRegion(region, local.x, local.y)) continue;
-      const [r, g, b, a] = sampleRegionRGBA(region, local.x, local.y);
+      const [r, g, b, a] = sampleRegionRGBA(region, local.x, local.y, interpolation);
       const idx = py * doc.width + px;
       const pi = idx * 4;
       layer.pixels[pi] = r;

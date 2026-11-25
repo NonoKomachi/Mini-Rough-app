@@ -1,3 +1,4 @@
+import { TransformInterpolation } from "@mini-rough/core";
 import { TransformSession } from "./transform-session";
 
 export interface TransformPanelSizeContext {
@@ -23,8 +24,13 @@ export class TransformPanel {
   private readonly scaleXInput: HTMLInputElement;
   private readonly scaleYInput: HTMLInputElement;
   private readonly rotationInput: HTMLInputElement;
+  private readonly interpolationSelect: HTMLSelectElement;
   private readonly applyBtn: HTMLButtonElement;
   private readonly cancelBtn: HTMLButtonElement;
+
+  /** 最後に選んだ補間方式 — 次に変形を始める時もこれを初期値にする(ツール設定の感覚で、
+   * 変形ごとに毎回選び直さなくて済むように)。 */
+  private lastInterpolation: TransformInterpolation = "bilinear";
 
   onApply: (() => void) | null = null;
   onCancel: (() => void) | null = null;
@@ -99,6 +105,26 @@ export class TransformPanel {
     freeHint.textContent = "四隅をドラッグして変形し、内側をドラッグして移動してください。";
     container.appendChild(freeHint);
 
+    // 補間方式(CLIP STUDIOの「拡大・縮小・回転」ダイアログ相当) — 拡大縮小・回転・自由変形の
+    // どのモードでも効くので、scaleRotateFields(モード別)の外、常時表示の位置に置く。
+    const interpRow = document.createElement("div");
+    interpRow.className = "transform-panel-row";
+    const interpLabel = document.createElement("label");
+    interpLabel.textContent = "補間方式";
+    this.interpolationSelect = document.createElement("select");
+    const interpOptions: { value: TransformInterpolation; label: string }[] = [
+      { value: "bilinear", label: "バイリニア(滑らか)" },
+      { value: "nearest", label: "ニアレストネイバー(ハード)" }
+    ];
+    for (const opt of interpOptions) {
+      const el = document.createElement("option");
+      el.value = opt.value;
+      el.textContent = opt.label;
+      this.interpolationSelect.appendChild(el);
+    }
+    interpRow.append(interpLabel, this.interpolationSelect);
+    container.appendChild(interpRow);
+
     const buttons = document.createElement("div");
     buttons.className = "transform-panel-buttons";
     this.applyBtn = document.createElement("button");
@@ -117,14 +143,17 @@ export class TransformPanel {
     this.scaleXInput.addEventListener("input", () => this.onScaleXInput());
     this.scaleYInput.addEventListener("input", () => this.onScaleYInput());
     this.rotationInput.addEventListener("input", () => this.onRotationInput());
+    this.interpolationSelect.addEventListener("change", () => this.onInterpolationInput());
   }
 
   open(session: TransformSession, ctx: TransformPanelSizeContext): void {
     this.session = session;
     this.ctx = ctx;
+    session.interpolation = this.lastInterpolation;
     this.titleEl.textContent = session.mode === "free" ? "自由変形" : "拡大・縮小・回転";
     this.scaleRotateFields.style.display = session.mode === "scaleRotate" ? "" : "none";
     this.container.classList.remove("hidden");
+    session.preview();
     this.refresh();
   }
 
@@ -136,7 +165,9 @@ export class TransformPanel {
   /** Re-reads the session's current parameters into the numeric fields — called after every
    * handle drag so the panel stays live, not just on open. */
   refresh(): void {
-    if (!this.session || this.session.mode !== "scaleRotate") return;
+    if (!this.session) return;
+    this.interpolationSelect.value = this.session.interpolation;
+    if (this.session.mode !== "scaleRotate") return;
     const { w, h } = this.session.getRegionSize();
     const basisX = this.basisCheckbox.checked ? this.ctx.finalWidth / this.ctx.docWidth : 1;
     const basisY = this.basisCheckbox.checked ? this.ctx.finalHeight / this.ctx.docHeight : 1;
@@ -189,6 +220,13 @@ export class TransformPanel {
     if (!this.session) return;
     const deg = Number(this.rotationInput.value);
     this.session.rotation = (deg * Math.PI) / 180;
+    this.applyAndRefresh();
+  }
+
+  private onInterpolationInput(): void {
+    if (!this.session) return;
+    this.lastInterpolation = this.interpolationSelect.value as TransformInterpolation;
+    this.session.interpolation = this.lastInterpolation;
     this.applyAndRefresh();
   }
 
