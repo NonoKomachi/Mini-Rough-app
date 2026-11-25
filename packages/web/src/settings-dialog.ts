@@ -4,6 +4,8 @@ import { SyncState } from "./firebase-sync";
 export interface SyncActions {
   signIn(): void;
   signOut(): void;
+  /** 「今すぐ保存」ボタン — デバウンスを待たず即座にFirebaseへpushする。成否を返す。 */
+  saveNow(): Promise<boolean>;
 }
 
 /** メニューバーの「設定」から開く環境設定ダイアログ。.mrkの中身ではなくブラウザ単位の好みを
@@ -23,6 +25,7 @@ export class SettingsDialog {
   private readonly syncStatusEl: HTMLElement;
   private readonly syncSignInBtn: HTMLButtonElement;
   private readonly syncSignOutBtn: HTMLButtonElement;
+  private readonly syncSaveNowBtn: HTMLButtonElement;
   private readonly syncActions: SyncActions;
   private readonly syncConfigured: boolean;
   private onChange: (settings: AppSettings) => void = () => {};
@@ -60,6 +63,7 @@ export class SettingsDialog {
               <div class="modal-buttons" style="margin-top:0">
                 <button type="button" class="sync-signin-btn">サインイン</button>
                 <button type="button" class="sync-signout-btn">サインアウト</button>
+                <button type="button" class="sync-save-now-btn">今すぐ保存</button>
               </div>
               <p class="transform-panel-hint">
                 サインインすると、パレット・環境設定・作業中のプロジェクトをクラウドへ自動で
@@ -120,13 +124,27 @@ export class SettingsDialog {
     this.syncStatusEl = box.querySelector(".sync-status")!;
     this.syncSignInBtn = box.querySelector(".sync-signin-btn")!;
     this.syncSignOutBtn = box.querySelector(".sync-signout-btn")!;
+    this.syncSaveNowBtn = box.querySelector(".sync-save-now-btn")!;
     this.syncSignInBtn.addEventListener("click", () => this.syncActions.signIn());
     this.syncSignOutBtn.addEventListener("click", () => this.syncActions.signOut());
+    this.syncSaveNowBtn.addEventListener("click", () => {
+      const originalLabel = this.syncSaveNowBtn.textContent;
+      this.syncSaveNowBtn.disabled = true;
+      this.syncSaveNowBtn.textContent = "保存中…";
+      void this.syncActions.saveNow().then((ok) => {
+        this.syncSaveNowBtn.textContent = ok ? "保存しました" : "保存に失敗しました";
+        setTimeout(() => {
+          this.syncSaveNowBtn.disabled = false;
+          this.syncSaveNowBtn.textContent = originalLabel;
+        }, 1500);
+      });
+    });
 
     if (!syncConfigured) {
       this.syncStatusEl.textContent = "この配信ではクラウド同期を利用できません(未設定)。";
       this.syncSignInBtn.style.display = "none";
       this.syncSignOutBtn.style.display = "none";
+      this.syncSaveNowBtn.style.display = "none";
     }
 
     if (!fileSystemAccessSupported) {
@@ -192,6 +210,7 @@ export class SettingsDialog {
     this.syncStatusEl.textContent = state.signedIn ? `サインイン済み: ${state.email}` : "未サインイン";
     this.syncSignInBtn.style.display = state.signedIn ? "none" : "";
     this.syncSignOutBtn.style.display = state.signedIn ? "" : "none";
+    this.syncSaveNowBtn.style.display = state.signedIn ? "" : "none";
   }
 
   show(): void {

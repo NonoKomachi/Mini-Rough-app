@@ -23,9 +23,12 @@ export default defineConfig({
   },
   plugins: [
     VitePWA({
-      // 頻繁にpushする運用なので、Service Workerの更新確認は「次回アクセス時に自動で最新へ
-      // 切り替え」(ユーザー操作不要)にする — 古いキャッシュのまま固定されてしまう事故を防ぐ。
-      registerType: "autoUpdate",
+      // 頻繁にpushする運用なので、Service Workerの更新は(ユーザー操作不要で)最新へ切り替える
+      // — ただし"autoUpdate"だとSW側が即座にskipWaiting+クライアント側も即座にreloadしてしまい、
+      // PWAとして開いている最中に未保存の編集がある状態で突然リロードされ失われる事故があった。
+      // "prompt"にして、SW側のskipWaitingはせず、クライアント側(pwa-update.ts)が
+      // 「現在の状態をキャッシュ/クラウドへ保存してから」明示的にupdateSW()を呼ぶ形にする。
+      registerType: "prompt",
       workbox: {
         // 本体バンドル(libclipのWASMモジュールを埋め込み済みで約2MB)がWorkboxの既定上限
         // (2MiB)ぎりぎりのため、余裕を持って引き上げておく。

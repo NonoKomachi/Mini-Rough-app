@@ -10,7 +10,15 @@ function cloneNode(node: LayerNode): LayerNode {
     const clone = new RasterLayer(node.name, node.width, node.height, node.id);
     clone.visible = node.visible;
     clone.opacity = node.opacity;
+    clone.blendMode = node.blendMode;
+    clone.clipToBelow = node.clipToBelow;
+    clone.alphaLocked = node.alphaLocked;
+    clone.maskEnabled = node.maskEnabled;
     clone.pixels.set(node.pixels);
+    if (node.mask) {
+      clone.mask = new Uint8ClampedArray(node.mask.length);
+      clone.mask.set(node.mask);
+    }
     return clone;
   }
   const clone = new LayerFolder(node.name, node.id);

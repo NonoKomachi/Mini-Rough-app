@@ -58,7 +58,7 @@ import { ConfirmDialog } from "./confirm-dialog";
 import { AlertDialog } from "./alert-dialog";
 import { PromptDialog } from "./prompt-dialog";
 import { isPenActive } from "./pen-state";
-import { setupPwaAutoUpdate } from "./pwa-update";
+import { setupPwaAutoUpdate, setBeforeReloadFlush } from "./pwa-update";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app-settings";
 import { SettingsDialog } from "./settings-dialog";
 import { signIn as signInToSync, signOutUser, getSyncState, onSyncStateChange, isSyncConfigured, waitForAuthReady, pushPalettes, pullPalettes, pushSettings, pullSettings, pushProject, pullProject } from "./firebase-sync";
@@ -553,7 +553,8 @@ function resizeDocumentToResult(doc: Document, result: CanvasSizeResult): Docume
 let appSettings: AppSettings = loadAppSettings();
 const settingsDialog = new SettingsDialog(appSettings, isFileSystemAccessSupported(), isSyncConfigured(), {
   signIn: () => void connectSync(),
-  signOut: () => signOutUser()
+  signOut: () => signOutUser(),
+  saveNow: () => pushProjectToCloudNow()
 });
 
 let autoSaveTimer: ReturnType<typeof setInterval> | undefined;
@@ -988,6 +989,16 @@ function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
 
+/** 「開いた」「新規作成した」「新規に読み込んだ」直後、または設定ダイアログの「今すぐ保存」
+ * ボタンから、サインイン済みなら即座にFirebaseへ保存する(編集のたびのデバウンス push とは
+ * 別経路、待たせない) — 複数端末を使う時、読み込み系の操作は他端末にもすぐ反映されてほしい
+ * というユーザー要望への対応。戻り値は成否(未サインインならfalse)。 */
+async function pushProjectToCloudNow(): Promise<boolean> {
+  if (!getSyncState().signedIn) return false;
+  const json = await buildProjectJson();
+  return pushProject(json);
+}
+
 async function buildProjectJson(): Promise<string> {
   const brushSizes: Record<string, number> = {};
   for (const [id, tool] of Object.entries(tools)) {
@@ -1163,7 +1174,13 @@ async function loadProjectFromJson(text: string, clearCache = true): Promise<voi
     isDirty = false;
     // clearCache=falseで呼ばれるのは起動時にキャッシュ自体から復元した時だけ — その場合は
     // キャッシュを消すと「次に何も編集せず再読み込みしたら復元対象が無くなる」ことになるので残す。
-    if (clearCache) void clearCachedProjectSnapshot();
+    if (clearCache) {
+      void clearCachedProjectSnapshot();
+      // 「開く」等の明示的な読み込み操作直後は、他端末にもすぐ反映されるよう即座にpushする
+      // (起動時のキャッシュ/クラウド復元(clearCache=false)では、取り込んだ直後にそのまま
+      // 同じ内容を書き戻すだけなので不要)。
+      void pushProjectToCloudNow();
+    }
   } catch (err) {
     console.error(err);
     alertDialog.show(`プロジェクトの読み込みに失敗しました: ${err instanceof Error ? err.message : String(err)}`);
@@ -1502,6 +1519,7 @@ function applyLoadedDocument(imported: ImportedDocument, mode: LoadMode): ApplyL
     void clearCachedProjectSnapshot();
     // 前に開いていた実ファイルのハンドルを持ち越さない(新規キャンバス作成時と同じ理由)。
     currentProjectFileHandle = undefined;
+    void pushProjectToCloudNow();
   } else {
     const active = requireActiveVariant();
     if (!active) return { ok: false, reason: "アクティブなバリエーションがありません" };
@@ -1684,6 +1702,7 @@ const newDocDialog = new NewDocumentDialog((result) => {
   // 前に開いていた実ファイルのハンドルを持ち越さない — 持ち越すと、次の自動保存/保存で
   // この白紙の新規プロジェクトが前のファイルへ無言で上書きされてしまう。
   currentProjectFileHandle = undefined;
+  void pushProjectToCloudNow();
 });
 
 const batchExportDialog = new BatchExportDialog(async (result, count) => {
@@ -2772,6 +2791,14 @@ layerPanelHandle.addEventListener("pointerup", (e) => {
 // PWAとして使っている場合、ブラウザ自身の更新チェックの間引き(最大24時間)を回避するため、
 // 明示的なチェックを仕込む(setupPwaAutoUpdate参照) — 頻繁にpushする運用のため、これが無いと
 // 「デプロイは成功しているのにインストール済みのPWAがいつまでも古い内容のまま」になる。
+// 新しい版を見つけてリロードする前に、今の内容を自動保存キャッシュ/Firebaseへ必ず書き出す
+// (isDirtyに関わらず常に) — これが無いと、未保存の編集がある状態で突然リロードされ、次に
+// 開いた時に「編集していない古い画面」に見えてしまう(ユーザー報告の不具合)。
+setBeforeReloadFlush(async () => {
+  const json = await buildProjectJson();
+  await setCachedProjectSnapshot(json);
+  if (getSyncState().signedIn) await pushProject(json);
+});
 setupPwaAutoUpdate();
 refreshColorSwatches();
 applyColorToTools(mainColor);

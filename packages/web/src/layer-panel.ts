@@ -438,6 +438,14 @@ export class LayerPanel {
       row.appendChild(clipIndicator);
     }
 
+    if (node.kind === "layer" && node.alphaLocked) {
+      const alphaLockIndicator = document.createElement("span");
+      alphaLockIndicator.className = "alpha-lock-indicator";
+      alphaLockIndicator.innerHTML = ALPHA_LOCK_ICON_SVG;
+      alphaLockIndicator.title = "透明ピクセルをロック中";
+      row.appendChild(alphaLockIndicator);
+    }
+
     if (node.kind === "layer" && node.mask) {
       const maskIndicator = document.createElement("button");
       maskIndicator.className = "icon-btn mask-indicator";
